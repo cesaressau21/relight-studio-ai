@@ -1,0 +1,282 @@
+"""Editor state controller: the single place where the document is mutated.
+
+Every user edit goes through a method here, which records an undo step and
+emits ``changed`` with the kinds of data that were touched so the renderer and
+the panels can react.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any, Callable
+
+import cv2
+import numpy as np
+from PySide6.QtCore import QObject, Signal
+
+from ..core.brush import BrushSettings, paint_depth, paint_mask, stroke_samples
+from ..core.document import Document, fit_size
+from ..core.history import History
+from ..core.lights import Light, LightType
+from ..core.presets import Preset
+from ..rendering.device import select_device
+
+log = logging.getLogger(__name__)
+
+ALL_KINDS = frozenset({"lights", "relight", "depth", "geometry", "adjust", "mask", "selection"})
+
+
+def preview_max_side() -> int:
+    return 1600 if select_device().cuda else 1024
+
+
+class EditorController(QObject):
+    changed = Signal(object)  # frozenset of kinds
+    documentLoaded = Signal()
+    selectionChanged = Signal(object)  # light id or None
+    historyChanged = Signal()
+    interactionChanged = Signal(bool)  # True while dragging (lower preview cost)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.doc: Document | None = None
+        self.history = History()
+        self.selected: int | None = None
+        self.brush = BrushSettings()
+        self.view = "result"
+        self.project_path: Path | None = None
+        self.dirty = False
+        self.preview_image: np.ndarray | None = None
+        self.mask_version = 0
+        self.offset_version = 0
+        self.disparity_version = 0
+        self._stroke: tuple[str, float, float] | None = None
+
+    # ------------------------------------------------------------------ document
+    def load_document(self, doc: Document, project_path: Path | None = None) -> None:
+        self.doc = doc
+        self.project_path = project_path
+        w, h = fit_size(doc.width, doc.height, preview_max_side())
+        self.preview_image = (
+            doc.image if (w, h) == (doc.width, doc.height)
+            else cv2.resize(doc.image, (w, h), interpolation=cv2.INTER_AREA)
+        )
+        self.selected = doc.lights[0].id if doc.lights else None
+        self.history.reset(doc.snapshot())
+        self.mask_version += 1
+        self.offset_version += 1
+        self.disparity_version += 1
+        self.dirty = False
+        self.documentLoaded.emit()
+        self.selectionChanged.emit(self.selected)
+        self.historyChanged.emit()
+        self.changed.emit(ALL_KINDS)
+
+    @property
+    def has_document(self) -> bool:
+        return self.doc is not None
+
+    def set_disparity(self, disparity: np.ndarray, source: str) -> None:
+        assert self.doc is not None
+        self.doc.disparity = disparity
+        self.doc.disparity_source = source
+        self.disparity_version += 1
+        self.dirty = True
+        self.changed.emit(frozenset({"geometry"}))
+
+    # ------------------------------------------------------------------- history
+    def _commit(self, label: str, kinds: set[str], merge_key: str | None = None) -> None:
+        assert self.doc is not None
+        if self.history.push(self.doc.snapshot(), label, merge_key):
+            self.dirty = True
+            self.historyChanged.emit()
+        self.changed.emit(frozenset(kinds))
+
+    def _restore(self, state) -> None:
+        assert self.doc is not None
+        old_mask, old_offset = self.doc.mask, self.doc.depth_offset
+        self.doc.restore(state)
+        if self.doc.mask is not old_mask:
+            self.mask_version += 1
+        if self.doc.depth_offset is not old_offset:
+            self.offset_version += 1
+        if self.doc.light(self.selected) is None:
+            self.selected = self.doc.lights[-1].id if self.doc.lights else None
+            self.selectionChanged.emit(self.selected)
+        self.dirty = True
+        self.historyChanged.emit()
+        self.changed.emit(ALL_KINDS)
+
+    def undo(self) -> None:
+        state = self.history.undo() if self.doc else None
+        if state is not None:
+            self._restore(state)
+
+    def redo(self) -> None:
+        state = self.history.redo() if self.doc else None
+        if state is not None:
+            self._restore(state)
+
+    # -------------------------------------------------------------------- lights
+    def select(self, light_id: int | None) -> None:
+        if light_id != self.selected:
+            self.selected = light_id
+            self.selectionChanged.emit(light_id)
+            self.changed.emit(frozenset({"selection"}))
+
+    def selected_light(self) -> Light | None:
+        return self.doc.light(self.selected) if self.doc else None
+
+    def add_light(self, light_type: LightType, **overrides: Any) -> Light | None:
+        if not self.doc:
+            return None
+        light = self.doc.add_light(light_type, **overrides)
+        self.selected = light.id
+        self.selectionChanged.emit(light.id)
+        self._commit(f"Add {light.type.label} light", {"lights", "selection"})
+        return light
+
+    def remove_light(self, light_id: int | None) -> None:
+        if not self.doc or self.doc.light(light_id) is None:
+            return
+        self.doc.remove_light(light_id)  # type: ignore[arg-type]
+        if self.selected == light_id:
+            self.selected = self.doc.lights[-1].id if self.doc.lights else None
+            self.selectionChanged.emit(self.selected)
+        self._commit("Delete light", {"lights", "selection"})
+
+    def duplicate_light(self, light_id: int | None) -> None:
+        src = self.doc.light(light_id) if self.doc else None
+        if src is None:
+            return
+        new_id = self.doc.rig.next_id()
+        clone = src.copy(id=new_id, name=f"{src.name} copy", x=src.x + 0.04, y=src.y + 0.04)
+        self.doc.lights.append(clone)
+        self.selected = new_id
+        self.selectionChanged.emit(new_id)
+        self._commit("Duplicate light", {"lights", "selection"})
+
+    def update_light(self, light_id: int | None, merge_key: str | None = None, **changes: Any) -> None:
+        light = self.doc.light(light_id) if self.doc else None
+        if light is None:
+            return
+        for key, value in changes.items():
+            setattr(light, key, value)
+        light.__post_init__()
+        key = merge_key or f"light{light_id}." + ",".join(sorted(changes))
+        self._commit(f"Edit {light.name}", {"lights"}, merge_key=key)
+
+    # ---------------------------------------------------------- parameter groups
+    def _update_group(self, group: str, kinds: set[str], label: str, merge_key: str | None, changes: dict) -> None:
+        if not self.doc:
+            return
+        target = getattr(self.doc, group)
+        for key, value in changes.items():
+            setattr(target, key, value)
+        self._commit(label, kinds, merge_key or f"{group}." + ",".join(sorted(changes)))
+
+    def update_relight(self, merge_key: str | None = None, **changes: Any) -> None:
+        self._update_group("relight", {"relight"}, "Lighting settings", merge_key, changes)
+
+    def update_depth(self, merge_key: str | None = None, **changes: Any) -> None:
+        self._update_group("depth", {"depth", "geometry"}, "Depth settings", merge_key, changes)
+
+    def update_adjustments(self, merge_key: str | None = None, **changes: Any) -> None:
+        self._update_group("adjustments", {"adjust"}, "Adjustments", merge_key, changes)
+
+    def update_mask_settings(self, merge_key: str | None = None, **changes: Any) -> None:
+        kinds = {"mask", "geometry"} if "depth_edits_enabled" in changes else {"mask"}
+        self._update_group("mask_settings", kinds, "Mask settings", merge_key, changes)
+
+    def reset_adjustments(self) -> None:
+        if not self.doc:
+            return
+        from ..core.settings import Adjustments
+
+        self.doc.adjustments = Adjustments()
+        self._commit("Reset adjustments", {"adjust"})
+
+    def apply_preset(self, preset: Preset) -> None:
+        if not self.doc:
+            return
+        preset.apply(self.doc)
+        self.selected = self.doc.lights[0].id if self.doc.lights else None
+        self.selectionChanged.emit(self.selected)
+        self._commit(f"Preset: {preset.name}", {"lights", "relight", "adjust", "selection"})
+
+    def set_view(self, view: str) -> None:
+        if view != self.view:
+            self.view = view
+            self.changed.emit(frozenset({"view"}))
+
+    # -------------------------------------------------------------------- layers
+    def _replace_layer(self, kind: str, fn: Callable[[np.ndarray], np.ndarray], label: str) -> None:
+        if not self.doc:
+            return
+        if kind == "mask":
+            self.doc.mask = fn(self.doc.ensure_mask().copy())
+            self.mask_version += 1
+            self._commit(label, {"mask"})
+        else:
+            self.doc.depth_offset = fn(self.doc.ensure_depth_offset().copy())
+            self.offset_version += 1
+            self._commit(label, {"geometry"})
+
+    def fill_mask(self) -> None:
+        self._replace_layer("mask", lambda m: np.full_like(m, 255), "Fill mask")
+
+    def clear_mask(self) -> None:
+        self._replace_layer("mask", np.zeros_like, "Clear mask")
+
+    def invert_mask(self) -> None:
+        self._replace_layer("mask", lambda m: 255 - m, "Invert mask")
+
+    def clear_depth_edits(self) -> None:
+        self._replace_layer("depth", np.zeros_like, "Clear depth edits")
+
+    def begin_stroke(self, kind: str, u: float, v: float, alt: bool) -> None:
+        """Start a brush stroke; the layer is copied so history keeps the old one."""
+        if not self.doc or kind not in ("mask", "depth"):
+            return
+        if kind == "mask":
+            self.doc.mask = self.doc.ensure_mask().copy()
+        else:
+            self.doc.depth_offset = self.doc.ensure_depth_offset().copy()
+        self._stroke = (kind, u, v)
+        self.interactionChanged.emit(True)
+        self._dab(kind, u, v, alt)
+
+    def stroke_to(self, u: float, v: float, alt: bool) -> None:
+        if not self._stroke or not self.doc:
+            return
+        kind, u0, v0 = self._stroke
+        for su, sv in stroke_samples(u0, v0, u, v, self.doc.width / self.doc.height, self.brush.size):
+            self._dab(kind, su, sv, alt, emit=False)
+        self._stroke = (kind, u, v)
+        self._emit_layer(kind)
+
+    def end_stroke(self) -> None:
+        if not self._stroke:
+            return
+        kind = self._stroke[0]
+        self._stroke = None
+        self.interactionChanged.emit(False)
+        self._commit("Paint mask" if kind == "mask" else "Edit depth", {"mask"} if kind == "mask" else {"geometry"})
+
+    def _dab(self, kind: str, u: float, v: float, alt: bool, emit: bool = True) -> None:
+        assert self.doc is not None
+        if kind == "mask":
+            paint_mask(self.doc.mask, u, v, self.brush, erase=alt)  # type: ignore[arg-type]
+        else:
+            paint_depth(self.doc.depth_offset, u, v, self.brush, push=not alt)  # type: ignore[arg-type]
+        if emit:
+            self._emit_layer(kind)
+
+    def _emit_layer(self, kind: str) -> None:
+        if kind == "mask":
+            self.mask_version += 1
+            self.changed.emit(frozenset({"mask"}))
+        else:
+            self.offset_version += 1
+            self.changed.emit(frozenset({"geometry"}))

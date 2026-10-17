@@ -1,0 +1,12 @@
+{
+  "name": "Soft Natural Light",
+  "order": 5,
+  "description": "Large window light with a bright, airy fill.",
+  "swatch": ["#f4f1ea", "#dfe7ef", "#fff8ec"],
+  "lights": [
+    {"type": "area", "name": "Window", "x": 0.05, "y": 0.3, "z": -0.3, "intensity": 1.4, "radius": 1.6, "size": 0.45, "softness": 0.9, "diffusion": 0.45, "kelvin": 6200, "color": [1.0, 1.0, 1.0]},
+    {"type": "ambient", "name": "Room fill", "intensity": 0.3, "kelvin": 6800, "color": [1.0, 1.0, 1.0]}
+  ],
+  "relight": {"original_light": 0.55, "delighting": 0.5, "ambient": 0.0, "specular": 0.1, "roughness": 0.65, "shadow_strength": 0.5, "ambient_occlusion": 0.35},
+  "adjustments": {"exposure": 0.1, "shadows": 0.15, "contrast": -0.05}
+}

@@ -1,0 +1,78 @@
+{
+  "name": "Neon Cyberpunk",
+  "order": 4,
+  "description": "Saturated magenta and cyan practicals in a dark scene.",
+  "swatch": [
+    "#ff2fb3",
+    "#22e5ff",
+    "#7a2cff"
+  ],
+  "lights": [
+    {
+      "type": "point",
+      "name": "Magenta",
+      "x": 0.05,
+      "y": 0.45,
+      "z": -0.1,
+      "intensity": 2.2,
+      "radius": 0.5,
+      "softness": 0.3,
+      "diffusion": 0.05,
+      "color": [
+        1.0,
+        0.1,
+        0.65
+      ],
+      "attenuation": 1.5
+    },
+    {
+      "type": "point",
+      "name": "Cyan",
+      "x": 0.95,
+      "y": 0.3,
+      "z": -0.1,
+      "intensity": 2.0,
+      "radius": 0.5,
+      "softness": 0.3,
+      "diffusion": 0.05,
+      "color": [
+        0.1,
+        0.9,
+        1.0
+      ],
+      "attenuation": 1.5
+    },
+    {
+      "type": "rim",
+      "name": "Violet rim",
+      "x": 0.5,
+      "y": -0.05,
+      "z": 1.1,
+      "intensity": 1.8,
+      "radius": 1.0,
+      "softness": 0.3,
+      "color": [
+        0.5,
+        0.2,
+        1.0
+      ]
+    }
+  ],
+  "relight": {
+    "original_light": 0.06,
+    "delighting": 0.75,
+    "ambient": 0.04,
+    "ambient_color": [
+      0.3,
+      0.2,
+      0.8
+    ],
+    "specular": 0.45,
+    "roughness": 0.3
+  },
+  "adjustments": {
+    "contrast": 0.3,
+    "saturation": 0.25,
+    "blacks": -0.2
+  }
+}

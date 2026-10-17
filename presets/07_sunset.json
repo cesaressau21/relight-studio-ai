@@ -1,0 +1,65 @@
+{
+  "name": "Sunset",
+  "order": 7,
+  "description": "Deep orange sun behind the subject with a purple sky fill.",
+  "swatch": [
+    "#ff6a3d",
+    "#ff2f6d",
+    "#6b4aa8"
+  ],
+  "lights": [
+    {
+      "type": "rim",
+      "name": "Sun rim",
+      "x": 0.8,
+      "y": 0.25,
+      "z": 1.2,
+      "intensity": 2.6,
+      "radius": 1.2,
+      "softness": 0.45,
+      "kelvin": 2600,
+      "color": [
+        1.0,
+        0.6,
+        0.35
+      ]
+    },
+    {
+      "type": "directional",
+      "name": "Low sun",
+      "x": 0.95,
+      "y": 0.45,
+      "z": 0.2,
+      "intensity": 0.9,
+      "softness": 0.5,
+      "kelvin": 2400,
+      "color": [
+        1.0,
+        0.65,
+        0.4
+      ]
+    },
+    {
+      "type": "ambient",
+      "name": "Dusk sky",
+      "intensity": 0.22,
+      "color": [
+        0.55,
+        0.4,
+        0.85
+      ]
+    }
+  ],
+  "relight": {
+    "original_light": 0.2,
+    "delighting": 0.7,
+    "ambient": 0.0,
+    "specular": 0.25,
+    "roughness": 0.5
+  },
+  "adjustments": {
+    "saturation": 0.15,
+    "contrast": 0.15,
+    "temperature": 0.1
+  }
+}

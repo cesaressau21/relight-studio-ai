@@ -1,0 +1,31 @@
+[project]
+name = "relight-studio-ai"
+version = "0.1.0"
+description = "Desktop photo relighting from monocular depth estimation (Depth Anything V2 + 2.5D lighting engine)"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Proprietary (third-party components under their own licenses, see docs/LICENSES.md)" }
+dependencies = [
+    "PySide6>=6.8",
+    "torch>=2.7",          # CUDA >= 12.8 build required for RTX 50-series (sm_120)
+    "transformers>=4.45",  # Depth Anything V2 support
+    "safetensors>=0.4",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "pillow>=10.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+build = ["pyinstaller>=6.10"]
+
+[project.scripts]
+relight-studio = "relight_studio.app.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: needs the real depth model weights and a sample photo"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning", "ignore::UserWarning"]
+
+[tool.setuptools.packages.find]
+include = ["relight_studio*"]

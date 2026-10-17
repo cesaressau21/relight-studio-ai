@@ -1,0 +1,52 @@
+{
+  "name": "Golden Hour",
+  "order": 2,
+  "description": "Low, warm sun from the side with long soft shadows.",
+  "swatch": [
+    "#ffb347",
+    "#ff8c42",
+    "#ffd28a"
+  ],
+  "lights": [
+    {
+      "type": "directional",
+      "name": "Sun",
+      "x": 0.02,
+      "y": 0.4,
+      "z": -0.15,
+      "intensity": 1.15,
+      "softness": 0.35,
+      "diffusion": 0.1,
+      "kelvin": 3200,
+      "color": [
+        1.0,
+        0.92,
+        0.8
+      ]
+    },
+    {
+      "type": "ambient",
+      "name": "Sky bounce",
+      "intensity": 0.12,
+      "kelvin": 7500,
+      "color": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "relight": {
+    "original_light": 0.25,
+    "delighting": 0.7,
+    "ambient": 0.0,
+    "specular": 0.25,
+    "roughness": 0.45,
+    "shadow_strength": 0.8
+  },
+  "adjustments": {
+    "temperature": 0.15,
+    "saturation": 0.1,
+    "contrast": 0.1
+  }
+}

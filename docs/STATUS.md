@@ -1,0 +1,64 @@
+# Feature status
+
+Legend: **Implemented** = works and is covered by tests or verified in the app ·
+**Approximation** = works, but by a deliberate simplification you should know about ·
+**Pending** = not built yet.
+
+## MVP acceptance criteria
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Open a real photograph | Implemented | JPEG/PNG/WebP/TIFF/BMP, EXIF orientation, ICC → sRGB (`tests/test_io.py`) |
+| Depth map from a real model | Implemented | Depth Anything V2 Small via Transformers (`tests/test_integration.py`) |
+| A light with X, Y, Z control | Implemented | canvas drag, `Ctrl`+wheel, side view, numeric fields |
+| Intensity, color, radius | Implemented | panel + wheel modifiers (`tests/test_engine.py`) |
+| Lighting depends on estimated geometry | Implemented | sphere vs. flat test, cast-shadow test |
+| Interactive update while moving | Implemented | coalesced background rendering, ~30–90 ms per preview frame on RTX 5070 |
+| Original image preserved | Implemented | read-only array, file never written (tests) |
+| Export | Implemented | PNG/JPEG/WebP, resolution, quality, sRGB profile, full-resolution render |
+| Runs locally on Windows | Implemented | Windows 11 + RTX 5070, no network after the first model download |
+
+## Engine
+
+| Feature | Status | Notes |
+|---|---|---|
+| Depth estimation | Implemented | Small (Apache-2.0) default; Base/Large (CC-BY-NC) optional; "High" detail = 756 px input + flip TTA |
+| Normals from depth | Approximation | height-field gradients, orthographic camera, slope clamped at depth jumps |
+| Edge-preserving smoothing | Implemented | joint guided upsampling to image edges + self-guided smoothing for normals |
+| Manual depth correction | Implemented | push/pull brush, relief, near/far remap, gamma, invert |
+| Reflectance / illumination separation | Approximation | shading = depth-guided smoothed luminance; colored or hard original light is only partially removed |
+| Point / area / directional / ambient / rim lights | Implemented | area light = 5 samples + wider penumbra |
+| Kelvin, softness, diffusion, falloff, enable | Implemented | |
+| Diffuse + specular | Approximation | wrapped Lambert + Blinn-Phong with a single global material |
+| Shadows | Approximation | screen-space ray marching through the depth map: objects are treated as infinitely thick height fields, nothing off-screen casts shadows, rays leaving the frame are unoccluded |
+| Ambient occlusion | Approximation | depth-difference cavity term, not ray-traced |
+| Unlimited lights | Implemented | the minimum required was three |
+
+## Editor
+
+| Feature | Status |
+|---|---|
+| Light gizmos with id colors, drag, nudge, depth bar, radius ring | Implemented |
+| Lateral depth view (side profile, draggable) | Implemented |
+| Zoom / pan / fit / 1:1, gizmos stable under zoom, pan, resize | Implemented |
+| Before/after split and hold-to-compare | Implemented |
+| Exposure, contrast, highlights, shadows, whites, blacks, saturation, white balance, gamma | Implemented |
+| Original/new light mix, ambient intensity | Implemented |
+| Relight mask (paint, erase, fill, clear, invert, overlay) | Implemented |
+| Eight presets (Studio Portrait … Moonlight) setting engine parameters | Implemented |
+| Undo/redo with drag merging | Implemented |
+| Project save/open (`.rsproj`, versioned JSON + layers, cached depth) | Implemented |
+| GPU status, VRAM, render time, progress in the status bar | Implemented |
+| CPU fallback with warning | Implemented (`RELIGHT_DEVICE=cpu` forces it) |
+| Windows executable | PyInstaller spec provided (see README) |
+
+## Pending / ideas
+
+* Semantic segmentation (e.g. a person/sky matting model) to separate subjects for per-object
+  masks and better depth edges. Not included yet: no segmentation model is bundled.
+* Per-light masks (currently one global relight mask).
+* Learned intrinsic decomposition or generative relighting for stronger removal of the original
+  light — would replace the heuristic shading estimate.
+* GLSL port of the renderer for >60 fps previews at 4K.
+* Color-managed export to wide-gamut profiles (export is sRGB).
+* 16-bit input and output (the pipeline currently loads 8-bit).

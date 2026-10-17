@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+models/*
+!models/README.md
+samples/
+build/
+dist/
+*.rsproj.tmp
+.codegraph/
+.atl/

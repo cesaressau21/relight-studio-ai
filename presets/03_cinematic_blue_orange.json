@@ -1,0 +1,80 @@
+{
+  "name": "Cinematic Blue & Orange",
+  "order": 3,
+  "description": "Warm key against a cool fill: complementary teal and orange contrast.",
+  "swatch": [
+    "#ff8a3d",
+    "#1fb5c9",
+    "#ffb36b"
+  ],
+  "lights": [
+    {
+      "type": "point",
+      "name": "Warm key",
+      "x": 0.12,
+      "y": 0.3,
+      "z": -0.25,
+      "intensity": 1.7,
+      "radius": 0.55,
+      "softness": 0.4,
+      "diffusion": 0.1,
+      "kelvin": 6500,
+      "color": [
+        1.0,
+        0.55,
+        0.2
+      ],
+      "attenuation": 1.4
+    },
+    {
+      "type": "point",
+      "name": "Teal fill",
+      "x": 0.92,
+      "y": 0.35,
+      "z": -0.2,
+      "intensity": 1.2,
+      "radius": 0.6,
+      "softness": 0.6,
+      "diffusion": 0.2,
+      "kelvin": 6500,
+      "color": [
+        0.15,
+        0.75,
+        0.95
+      ],
+      "attenuation": 1.4
+    },
+    {
+      "type": "rim",
+      "name": "Edge",
+      "x": 0.95,
+      "y": 0.15,
+      "z": 1.0,
+      "intensity": 1.8,
+      "radius": 0.9,
+      "softness": 0.35,
+      "color": [
+        1.0,
+        0.7,
+        0.45
+      ]
+    }
+  ],
+  "relight": {
+    "original_light": 0.12,
+    "delighting": 0.7,
+    "ambient": 0.05,
+    "ambient_color": [
+      0.4,
+      0.6,
+      1.0
+    ],
+    "specular": 0.3,
+    "roughness": 0.4
+  },
+  "adjustments": {
+    "contrast": 0.25,
+    "saturation": 0.1,
+    "blacks": -0.1
+  }
+}

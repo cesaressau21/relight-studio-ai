@@ -1,0 +1,11 @@
+{
+  "name": "Dramatic Side Light",
+  "order": 6,
+  "description": "Hard light at 90°: half the subject falls into shadow (split lighting).",
+  "swatch": ["#ffffff", "#2a2a2a", "#b0b0b0"],
+  "lights": [
+    {"type": "point", "name": "Side", "x": -0.1, "y": 0.35, "z": 0.25, "intensity": 3.0, "radius": 1.2, "softness": 0.1, "diffusion": 0.0, "kelvin": 5000, "color": [1.0, 1.0, 1.0]}
+  ],
+  "relight": {"original_light": 0.08, "delighting": 0.75, "ambient": 0.02, "specular": 0.3, "roughness": 0.4, "shadow_strength": 0.95},
+  "adjustments": {"contrast": 0.3, "blacks": -0.15, "saturation": -0.15}
+}
