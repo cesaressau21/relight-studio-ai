@@ -42,7 +42,7 @@ from .canvas import Canvas
 from .controller import EditorController
 from .export_dialog import ExportDialog
 from .panels import AdjustPanel, LayersPanel, LightsPanel, PresetsPanel, ScenePanel
-from .workers import DepthWorker, ExportWorker, RenderJob, RenderService, to_qimage
+from .workers import DepthWorker, ExportWorker, MatteWorker, RenderJob, RenderService, to_qimage
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +76,8 @@ class MainWindow(QMainWindow):
         self.render_service = RenderService(self)
         self._depth_worker: DepthWorker | None = None
         self._depth_rerun = False
+        self._matte_worker: MatteWorker | None = None
+        self._matte_rerun = False
         self._export_worker: ExportWorker | None = None
         self._image_key = 0
         self._offset_copy: tuple[int, np.ndarray | None] = (-1, None)
@@ -322,6 +324,10 @@ class MainWindow(QMainWindow):
         self.interaction_timer.setSingleShot(True)
         self.interaction_timer.setInterval(150)
         self.interaction_timer.timeout.connect(self._request_render)
+        self.matte_timer = QTimer(self)
+        self.matte_timer.setSingleShot(True)
+        self.matte_timer.setInterval(300)
+        self.matte_timer.timeout.connect(self.run_matte)
 
     def set_tool(self, tool: str) -> None:
         self.canvas.set_tool(tool)
@@ -458,7 +464,46 @@ class MainWindow(QMainWindow):
             self.canvas.set_mask_overlay(self.ctl.doc.mask if self.ctl.doc.mask_settings.show_overlay else None)
         if kinds - {"selection"}:
             self._request_render()
+        if kinds & {"geometry", "depth"} and "matte" not in kinds:
+            self.matte_timer.start()  # debounced: sliders fire many changes
         self.canvas.update()
+
+    # ================================================================== matte
+    def run_matte(self) -> None:
+        """Compute the AI subject matte when the edge mode needs it and it is out of date."""
+        doc = self.ctl.doc
+        if doc is None or doc.disparity is None or doc.depth.edge_mode != "matting":
+            return
+        key = self.ctl.matte_key()
+        if doc.alpha_key == key:
+            return
+        if self._matte_worker is not None:
+            self._matte_rerun = True
+            return
+        self._matte_rerun = False
+        offset = doc.depth_offset.copy() if (doc.depth_offset is not None and doc.mask_settings.depth_edits_enabled) else None
+        worker = MatteWorker(self.ctl.preview_image, doc.disparity, copy.deepcopy(doc.depth), offset, key, self)
+        worker.done.connect(lambda alpha, k, sec, target=doc: self._on_matte(target, alpha, k, sec))
+        worker.failed.connect(lambda m: self.set_status(m, error=True))
+        worker.finished.connect(self._matte_finished)
+        self._matte_worker = worker
+        self.set_status("Refining subject edges…")
+        worker.start()
+
+    def _matte_finished(self) -> None:
+        self._matte_worker = None
+        if self._matte_rerun:
+            self.run_matte()
+
+    def _on_matte(self, target: Document, alpha, key: tuple, seconds: float) -> None:
+        if target is not self.ctl.doc or key != self.ctl.matte_key():
+            self._matte_rerun = True  # settings changed meanwhile: compute again
+            return
+        self.ctl.set_alpha(alpha, key)
+        if alpha is None:
+            self.set_status("No distinct subject in depth: edge refinement inactive")
+        else:
+            self.set_status(f"Subject edges refined with AI matting ({seconds * 1000:.0f} ms)")
 
     def _on_interaction(self, active: bool) -> None:
         # Drop to half resolution while dragging only when full frames are slow.
@@ -489,6 +534,8 @@ class MainWindow(QMainWindow):
             offset_version=self._offset_copy[0],
             mask=self._mask_copy[1],
             mask_version=self._mask_copy[0],
+            alpha=self.ctl.current_alpha(),
+            alpha_version=self.ctl.alpha_version,
             interactive=self._interactive,
         )
         self.render_service.request(job)
@@ -512,6 +559,8 @@ class MainWindow(QMainWindow):
         extra = f" · scene {stats['scene_ms']:.0f} ms" if "scene_ms" in stats else ""
         mode = " · draft" if stats.get("interactive") else ""
         self.render_label.setText(f"Render {ms:.0f} ms ({w}×{h}{mode}){extra}")
+        if "subject" in stats and not stats.get("interactive"):
+            self.scene_panel.set_edge_status(stats["subject"], self.ctl.current_alpha() is not None)
 
     # ================================================================== files
     def open_dialog(self) -> None:
@@ -613,6 +662,7 @@ class MainWindow(QMainWindow):
             mask_settings=copy.deepcopy(doc.mask_settings), disparity=doc.disparity,
             mask=None if doc.mask is None else doc.mask.copy(),
             depth_offset=None if doc.depth_offset is None else doc.depth_offset.copy(),
+            alpha=self.ctl.current_alpha(),
         )
         worker = ExportWorker(snapshot, self._params(view="result"), options, path, self)
         worker.progress.connect(self.progress.setValue)
@@ -661,7 +711,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             e.ignore()
             return
-        for worker in (self._depth_worker, self._export_worker, getattr(self, "_warmup_worker", None)):
+        for worker in (self._depth_worker, self._export_worker, self._matte_worker, getattr(self, "_warmup_worker", None)):
             if worker is not None:
                 worker.wait(10000)
         self.render_service.shutdown()

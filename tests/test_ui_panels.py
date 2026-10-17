@@ -138,3 +138,21 @@ def test_presets_panel_applies_presets(qapp, editor):
     card.clicked.emit()
     assert [l.name for l in ctl.doc.lights] == [s["name"] for s in card.preset.lights]
     settle(qapp, editor)
+
+
+def test_subject_edge_controls(qapp, editor):
+    panel, ctl = editor.scene_panel, editor.ctl
+    panel.edge_mode.setCurrentIndex(panel.edge_mode.findData("guided"))
+    assert ctl.doc.depth.edge_mode == "guided"
+    panel.auto_threshold.setChecked(False)
+    assert ctl.doc.depth.subject_threshold >= 0 and panel.edge_form.rows["subject_threshold"].isEnabled()
+    panel.edge_form.rows["subject_threshold"].spin.setValue(0.4)
+    assert ctl.doc.depth.subject_threshold == pytest.approx(0.4)
+    panel.edge_form.rows["edge_band"].spin.setValue(0.05)
+    assert ctl.doc.depth.edge_band == pytest.approx(0.05)
+    panel.auto_threshold.setChecked(True)
+    assert ctl.doc.depth.subject_threshold < 0
+    panel.edge_mode.setCurrentIndex(panel.edge_mode.findData("off"))
+    assert not panel.auto_threshold.isEnabled()
+    panel.set_edge_status(False, False)
+    assert "off" in panel.edge_status.text()

@@ -48,6 +48,8 @@ class RenderJob:
     offset_version: int
     mask: np.ndarray | None
     mask_version: int
+    alpha: np.ndarray | None = None  # AI subject matte (None = estimate edges in the scene builder)
+    alpha_version: int = 0
     interactive: bool = False
     stats: dict = field(default_factory=dict)
 
@@ -68,6 +70,7 @@ class RenderWorker(QObject):
         key = (
             job.image_key, job.disparity_version, job.depth.geometry_key(),
             job.offset_version if job.offset is not None else -1,
+            job.alpha_version if job.alpha is not None else -1,
         )
         cached = self._scenes.get(scale)
         if cached is None or cached[0] != key:
@@ -77,7 +80,7 @@ class RenderWorker(QObject):
                 image = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))),
                                    interpolation=cv2.INTER_AREA)
             start = time.perf_counter()
-            scene = build_scene(image, job.disparity, job.depth, self.device, job.offset, job.mask)
+            scene = build_scene(image, job.disparity, job.depth, self.device, job.offset, job.mask, job.alpha)
             job.stats["scene_ms"] = (time.perf_counter() - start) * 1000
             self._scenes[scale] = (key, scene)
             self._mask_versions[scale] = job.mask_version
@@ -106,6 +109,7 @@ class RenderWorker(QObject):
                 render_ms=(time.perf_counter() - start) * 1000,
                 size=(scene.width, scene.height),
                 interactive=job.interactive,
+                subject=scene.alpha is not None,
             )
             self.finished.emit(to_qimage(rgb), job.stats)
         except Exception as exc:  # keep the UI alive, report the error
@@ -217,6 +221,29 @@ class DepthWorker(QThread):
             self.failed.emit(f"Depth estimation failed: {exc}\n{traceback.format_exc(limit=2)}")
 
 
+class MatteWorker(QThread):
+    """Computes the AI subject matte for the preview image."""
+
+    done = Signal(object, object, float)  # alpha or None, key, seconds
+    failed = Signal(str)
+
+    def __init__(self, image: np.ndarray, disparity: np.ndarray, depth: DepthSettings,
+                 offset: np.ndarray | None, key: tuple, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.image, self.disparity, self.depth, self.offset, self.key = image, disparity, depth, offset, key
+
+    def run(self) -> None:
+        try:
+            from ..ai.matting import matte_subject
+
+            start = time.perf_counter()
+            alpha = matte_subject(self.image, self.disparity, self.depth, self.offset)
+            self.done.emit(alpha, self.key, time.perf_counter() - start)
+        except Exception as exc:
+            log.exception("Subject matting failed")
+            self.failed.emit(f"Subject matting failed: {exc}")
+
+
 def render_export(
     doc: Document,
     params: RenderParams,
@@ -230,7 +257,7 @@ def render_export(
     w, h = options.target_size(doc.width, doc.height)
     image = doc.image if (w, h) == (doc.width, doc.height) else cv2.resize(doc.image, (w, h), interpolation=cv2.INTER_AREA)
     offset = doc.depth_offset if doc.mask_settings.depth_edits_enabled else None
-    scene = build_scene(image, doc.disparity, doc.depth, device, offset, doc.mask)
+    scene = build_scene(image, doc.disparity, doc.depth, device, offset, doc.mask, doc.alpha)
     if progress:
         progress(0.1)
     renderer = Renderer()

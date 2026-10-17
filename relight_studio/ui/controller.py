@@ -51,6 +51,7 @@ class EditorController(QObject):
         self.mask_version = 0
         self.offset_version = 0
         self.disparity_version = 0
+        self.alpha_version = 0
         self._stroke: tuple[str, float, float] | None = None
 
     # ------------------------------------------------------------------ document
@@ -86,6 +87,24 @@ class EditorController(QObject):
         if reanalysis:
             self.dirty = True
         self.changed.emit(frozenset({"geometry"}))
+
+    def matte_key(self) -> tuple:
+        """Inputs the subject matte depends on (compared with ``doc.alpha_key``)."""
+        assert self.doc is not None
+        offset = self.offset_version if self.doc.mask_settings.depth_edits_enabled else -1
+        return (self.disparity_version, offset, self.doc.depth.matte_key())
+
+    def current_alpha(self) -> np.ndarray | None:
+        """The AI matte if it matches the current depth and edge settings."""
+        if self.doc is None or self.doc.alpha is None or self.doc.alpha_key != self.matte_key():
+            return None
+        return self.doc.alpha
+
+    def set_alpha(self, alpha: np.ndarray | None, key: tuple) -> None:
+        assert self.doc is not None
+        self.doc.alpha, self.doc.alpha_key = alpha, key
+        self.alpha_version += 1
+        self.changed.emit(frozenset({"geometry", "matte"}))
 
     # ------------------------------------------------------------------- history
     def _commit(self, label: str, kinds: set[str], merge_key: str | None = None) -> None:

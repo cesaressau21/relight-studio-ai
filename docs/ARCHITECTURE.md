@@ -36,6 +36,25 @@ photo (uint8, read-only) ──► Depth Anything V2 ──► disparity (cached
   one-row halo so chunking is seamless) to bound GPU memory; on CUDA out-of-memory the export
   retries on the CPU.
 
+## Silhouette edges
+
+Depth Anything predicts at ~518 px and its edges are soft: upsampled, the subject's depth
+bleeds several pixels into the background, which then glows like the subject and casts ghost
+shadows. `rendering/edges.py` fixes this with two layers:
+
+1. **Subject detection**: Otsu threshold on the depth histogram, accepted only when the histogram
+   has a valley at the split (a real jump, not a sloped floor).
+2. **Matte**: trimap from depth (unknown band = `edge_band`), then ViTMatte (`ai/matting.py`,
+   computed in a background thread at preview resolution and guided-upsampled for export) or a fast
+   color projection between local subject/background colors.
+3. **Layers**: background pixels whose depth is pulled toward the subject are discarded; each
+   layer is grown across the band from its reliable pixels (doubling-radius dilation + push-pull).
+4. **Composite**: depth and normals are blended by the matte, so shading and shadows follow the
+   photo's real outline, including semi-transparent hair.
+
+Scene → **Subject edges** selects AI matting (default), Fast or Off, and exposes the subject
+depth and band width. Display → **Subject matte** shows the result.
+
 ## Lighting model
 
 All lighting happens in linear RGB.

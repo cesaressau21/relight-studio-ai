@@ -4,6 +4,7 @@
 |---|---|---|
 | Depth Anything V2 **Small** (`depth-anything/Depth-Anything-V2-Small-hf`) | default depth model | Apache-2.0 |
 | Depth Anything V2 **Base** / **Large** | optional, selectable in Scene → Model | **CC-BY-NC-4.0 — non-commercial use only** |
+| ViTMatte Small (`hustvl/vitmatte-small-composition-1k`) | AI subject matte for silhouette edges | Apache-2.0 |
 | PyTorch | tensors, CUDA | BSD-3-Clause |
 | Hugging Face Transformers | model loading | Apache-2.0 |
 | PySide6 / Qt 6 | user interface | LGPL-3.0 (dynamically linked) |

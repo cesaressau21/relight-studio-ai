@@ -134,3 +134,21 @@ def test_opening_a_second_photo_during_inference_gets_its_own_depth(qapp, window
     ph, pw = ctl.preview_image.shape[:2]
     dh, dw = ctl.doc.disparity.shape
     assert abs(dw / dh - pw / ph) < 0.03
+
+
+@pytest.mark.skipif(real_sample() is None, reason="no sample photograph")
+def test_ai_matte_on_a_real_portrait():
+    from relight_studio.ai.depth import DepthEstimator
+    from relight_studio.ai.matting import matte_subject
+    from relight_studio.core.image_io import load_image
+    from relight_studio.core.settings import DepthSettings
+
+    image = load_image(real_sample())
+    disparity = DepthEstimator.shared().predict(image)
+    alpha = matte_subject(image, disparity, DepthSettings())
+    assert alpha is not None and alpha.shape == image.shape[:2] and alpha.dtype == np.uint8
+    h, w = alpha.shape
+    assert alpha[int(h * 0.45), int(w * 0.5)] == 255  # face
+    assert alpha[int(h * 0.1), int(w * 0.05)] == 0  # wall
+    soft = ((alpha > 10) & (alpha < 245)).mean()
+    assert 0.001 < soft < 0.2  # a genuine matte with partial coverage along the outline

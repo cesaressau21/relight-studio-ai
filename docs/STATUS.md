@@ -25,9 +25,11 @@ Legend: **Implemented** = works and is covered by tests or verified in the app Â
 | Depth estimation | Implemented | Small (Apache-2.0) default; Base/Large (CC-BY-NC) optional; "High" detail = 756 px input + flip TTA |
 | Normals from depth | Approximation | height-field gradients, orthographic camera, slope clamped at depth jumps |
 | Edge-preserving smoothing | Implemented | joint guided upsampling to image edges + self-guided smoothing for normals |
+| Subject silhouette edges | Implemented | subject found from the depth histogram; AI matte (ViTMatte, hair-level) or fast color matte; subject and background depth layers composited by the matte, so the background next to a subject is no longer lit as subject (halo 108 â†’ 2 levels in `tests/test_edges.py`) |
+| Multi-layer scenes | Approximation | only two layers (subject / background): parts of the subject that are as far as the threshold (e.g. a shoulder or scarf) can be split off; adjust **Subject depth** |
 | Manual depth correction | Implemented | push/pull brush, relief, near/far remap, gamma, invert |
 | Reflectance / illumination separation | Approximation | shading = depth-guided smoothed luminance; colored or hard original light is only partially removed |
-| Point / area / directional / ambient / rim lights | Implemented | area light = 5 samples + wider penumbra |
+| Point / area / directional / ambient / rim lights | Implemented | area light = 5 samples for shading and for shadows (soft lateral penumbra) |
 | Kelvin, softness, diffusion, falloff, enable | Implemented | |
 | Diffuse + specular | Approximation | wrapped Lambert + Blinn-Phong with a single global material |
 | Shadows | Approximation | screen-space ray marching through the depth map: objects are treated as infinitely thick height fields, nothing off-screen casts shadows, rays leaving the frame are unoccluded |
@@ -54,8 +56,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app Â
 
 ## Pending / ideas
 
-* Semantic segmentation (e.g. a person/sky matting model) to separate subjects for per-object
-  masks and better depth edges. Not included yet: no segmentation model is bundled.
+* Semantic segmentation into more than two layers (several people/objects at different depths).
 * Per-light masks (currently one global relight mask).
 * Learned intrinsic decomposition or generative relighting for stronger removal of the original
   light â€” would replace the heuristic shading estimate.

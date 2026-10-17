@@ -13,7 +13,7 @@ Branch: feat/regression-edges-layout (from feat/relight-mvp) · Delivery: ask-on
 | ID | Specs | Route | Status | Evidence |
 |----|-------|-------|--------|----------|
 | T1 | S1 | inline | done | 234 tests pass; new: test_engine_params, test_controller, test_ui_panels, test_ui_canvas_interaction, test_main_window, test_source_hygiene |
-| T2 | S2 | inline | pending | |
+| T2 | S2 | inline | done | tests/test_edges.py (15) RED→GREEN: halo 108→1.8 levels; ViTMatte integration test; area-light penumbra test RED (28→26) → GREEN |
 | T3 | S3 | inline | pending | |
 
 Route rationale: sequential single writer; no parallel disjoint units launched together.
@@ -23,3 +23,4 @@ Route rationale: sequential single writer; no parallel disjoint units launched t
 - L2 Screen: DELL AW2523HF 1920x1080, available 1920x1032, DPR 1.0.
 - L3 Decision S2: subject matting with hustvl/vitmatte-small-composition-1k (Apache-2.0, native Transformers, no remote code) using a trimap derived from depth; BiRefNet rejected (needs trust_remote_code). Prototype: ~110 ms at 1.5 MP after warm-up, resolves individual hair strands.
 - L4 T1 found real bugs: main_window.py strings were double-encoded (mojibake from an earlier cp1252 conversion; also in the built exe) -> repaired + hygiene test; opening a photo marked the document dirty (first depth estimate) -> fixed + test. QSettings moved to an INI file so tests can isolate it.
+- L5 T2: two-layer silhouette refinement (rendering/edges.py) + ViTMatte matte (ai/matting.py, MatteWorker). Subject detection uses a histogram-valley test (portraits 0.16-0.19 vs ramp ~1.0; Otsu effectiveness alone misclassified sample 2 at 0.81). Push-pull filling inverted rim normals -> replaced by dilation extension. Found: area lights only softened shading, not shadow edges -> multi-sample shadows. Scene build 24 ms -> 79 ms with edges (half-res while dragging). Known limit: two layers only (scarf/shoulder can be split at the threshold).

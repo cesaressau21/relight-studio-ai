@@ -19,6 +19,7 @@ import numpy as np
 import torch
 
 from ..core.settings import DepthSettings
+from .edges import guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
 from .filters import gaussian_blur, guided_filter, luminance, resize, srgb_to_linear
 
 
@@ -34,6 +35,7 @@ class Scene:
     normals: torch.Tensor  # 1x3xHxW unit normals (camera-facing has nz < 0)
     cavity: torch.Tensor  # 1x1xHxW screen-space occlusion term in [0, 1]
     mask: torch.Tensor | None  # 1x1xHxW relight mask in [0, 1]
+    alpha: torch.Tensor | None = None  # 1x1xHxW subject matte (None = no subject separation)
 
     @property
     def aspect(self) -> float:
@@ -86,6 +88,49 @@ def compute_normals(z: torch.Tensor, max_slope: float = MAX_SLOPE) -> torch.Tens
     return n / n.norm(dim=1, keepdim=True)
 
 
+def _image_tensor(image: np.ndarray, device: torch.device) -> torch.Tensor:
+    img = torch.from_numpy(np.array(image, dtype=np.uint8, copy=True)).to(device)
+    return img.permute(2, 0, 1).unsqueeze(0).float() / 255.0
+
+
+@torch.inference_mode()
+def scene_depth(
+    height: int,
+    width: int,
+    disparity: np.ndarray,
+    settings: DepthSettings,
+    device: torch.device,
+    depth_offset: np.ndarray | None = None,
+) -> torch.Tensor:
+    """Normalized depth (0 = near) at the given size, including the user's depth edits."""
+    disp = torch.from_numpy(np.ascontiguousarray(disparity, dtype=np.float32)).to(device)[None, None]
+    depth = resize(normalize_disparity(disp, settings), height, width)
+    if depth_offset is not None:
+        off = torch.from_numpy(np.ascontiguousarray(depth_offset, dtype=np.float32)).to(device)[None, None]
+        depth = (depth + resize(off, height, width)).clamp(-0.5, 1.5)
+    return depth
+
+
+def edge_band_px(settings: DepthSettings, height: int) -> int:
+    return max(2, round(settings.edge_band * height))
+
+
+def resolve_threshold(depth01: torch.Tensor, settings: DepthSettings) -> tuple[float, bool]:
+    """Subject/background split: the user's value, or Otsu when automatic."""
+    if settings.subject_threshold >= 0:
+        return float(settings.subject_threshold), True
+    return subject_threshold(depth01)
+
+
+def _smoothed_normals(depth: torch.Tensor, relief: float, s: float) -> torch.Tensor:
+    # Edge-preserving (self-guided) smoothing: skin texture does not become relief
+    # while real depth jumps stay sharp.
+    h = depth.shape[-2]
+    r_norm = max(2, round(h * (0.004 + 0.012 * s)))
+    d_smooth = guided_filter(depth, depth, r_norm, (0.006 + 0.012 * s) ** 2)
+    return compute_normals(gaussian_blur(d_smooth, 1.0 + h * 0.001) * relief)
+
+
 @torch.inference_mode()
 def build_scene(
     image: np.ndarray,
@@ -94,6 +139,7 @@ def build_scene(
     device: torch.device,
     depth_offset: np.ndarray | None = None,
     mask: np.ndarray | None = None,
+    alpha: np.ndarray | None = None,
 ) -> Scene:
     """Build all cached maps for ``image`` (already at the target resolution).
 
@@ -102,33 +148,39 @@ def build_scene(
         disparity: model output at any resolution.
         depth_offset: user depth corrections at edit resolution (normalized depth units).
         mask: relight mask at edit resolution (uint8, 255 = apply).
+        alpha: subject matte from an AI matting model (uint8, any resolution); used
+            when ``settings.edge_mode == "matting"``, otherwise a fast matte is estimated.
     """
     h, w = image.shape[:2]
-    img = torch.from_numpy(np.array(image, dtype=np.uint8, copy=True)).to(device)
-    img = img.permute(2, 0, 1).unsqueeze(0).float() / 255.0
+    img = _image_tensor(image, device)
     image_lin = srgb_to_linear(img)
-    guide = luminance(img)  # perceptual luminance as the edge guide
-
-    disp = torch.from_numpy(np.ascontiguousarray(disparity, dtype=np.float32)).to(device)[None, None]
-    depth = resize(normalize_disparity(disp, settings), h, w)
-    if depth_offset is not None:
-        off = torch.from_numpy(np.ascontiguousarray(depth_offset, dtype=np.float32)).to(device)[None, None]
-        depth = (depth + resize(off, h, w)).clamp(-0.5, 1.5)
-
-    # Snap the (low-res) depth edges onto image edges: joint guided upsampling.
+    depth = scene_depth(h, w, disparity, settings, device, depth_offset)
     s = float(np.clip(settings.smoothing, 0.0, 1.0))
-    r_edge = max(1, round(h * 0.003 * (1.0 + 2.0 * s)))
-    depth = guided_filter(guide, depth, r_edge, 2e-3 + 6e-3 * s)
-
     relief = max(float(settings.relief), 1e-3)
-    z = depth * relief
 
-    # Normals come from an edge-preserving (self-guided) smoothing of the depth:
-    # small undulations such as skin texture are flattened while the jumps
-    # between objects stay sharp, which keeps silhouette artifacts thin.
-    r_norm = max(2, round(h * (0.004 + 0.012 * s)))
-    d_smooth = guided_filter(depth, depth, r_norm, (0.006 + 0.012 * s) ** 2)
-    normals = compute_normals(gaussian_blur(d_smooth, 1.0 + h * 0.001) * relief)
+    alpha_t = None
+    if settings.edge_mode in ("guided", "matting"):
+        band = edge_band_px(settings, h)
+        if settings.edge_mode == "matting" and alpha is not None:
+            a = torch.from_numpy(np.ascontiguousarray(alpha)).to(device)[None, None].float() / 255.0
+            alpha_t = upsample_alpha(a, img)
+        else:
+            threshold, separable = resolve_threshold(depth, settings)
+            if separable:
+                alpha_t = guided_alpha(img, trimap_from_depth(depth, threshold, band), band)
+
+    if alpha_t is not None:
+        # Two layers, each free of the silhouette depth jump, composited by the matte.
+        depth_fg, depth_bg = layered_depth(depth, alpha_t, edge_band_px(settings, h))
+        depth = alpha_t * depth_fg + (1.0 - alpha_t) * depth_bg
+        n = alpha_t * _smoothed_normals(depth_fg, relief, s) + (1.0 - alpha_t) * _smoothed_normals(depth_bg, relief, s)
+        normals = n / n.norm(dim=1, keepdim=True).clamp(min=1e-8)
+    else:
+        # Snap the (low-res) depth edges onto image edges: joint guided upsampling.
+        r_edge = max(1, round(h * 0.003 * (1.0 + 2.0 * s)))
+        depth = guided_filter(luminance(img), depth, r_edge, 2e-3 + 6e-3 * s)
+        normals = _smoothed_normals(depth, relief, s)
+    z = depth * relief
 
     # Cavity: pixels deeper than their neighborhood receive less ambient light.
     d_blur = gaussian_blur(depth, h * 0.025)
@@ -146,7 +198,8 @@ def build_scene(
     ref = torch.quantile(flat, 0.97).clamp(min=1e-3)
     shading = (shading / ref).clamp(0.08, 1.5)
 
-    return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity, mask_tensor(mask, h, w, device))
+    return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
+                 mask_tensor(mask, h, w, device), alpha_t)
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:

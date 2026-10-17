@@ -62,6 +62,8 @@ class Document:
     disparity_source: str = ""  # model key + detail used for ``disparity``
     mask: np.ndarray | None = None  # edit-res uint8, 255 = relight applied
     depth_offset: np.ndarray | None = None  # edit-res float32 offsets in normalized depth
+    alpha: np.ndarray | None = None  # derived subject matte (uint8, preview resolution)
+    alpha_key: tuple = ()  # inputs the matte was computed from
 
     def __post_init__(self) -> None:
         if self.image.dtype != np.uint8 or self.image.ndim != 3 or self.image.shape[2] != 3:

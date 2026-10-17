@@ -32,7 +32,7 @@ from ..core.settings import Adjustments, MaskSettings, RelightSettings
 from .filters import box_filter, linear_to_srgb, luminance, smoothstep, turbo
 from .scene import Scene
 
-VIEW_MODES = ("result", "original", "depth", "normals", "albedo", "shading", "lighting", "occlusion")
+VIEW_MODES = ("result", "original", "depth", "normals", "subject", "albedo", "shading", "lighting", "occlusion")
 
 MAX_SHADOW_REACH = 0.6  # screen-space shadow ray length, in image heights
 
@@ -177,8 +177,17 @@ def _point_like(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
     to_light = lp - reg.pos
     dist = to_light.norm(dim=1, keepdim=True).clamp(min=1e-6)
     l = to_light / dist
-    softness = min(light.softness + (2.0 * light.size if is_area else 0.0), 2.0)
-    vis = _shadow(scene, reg, to_light, rs.shadow_steps, softness) if light.shadows and rs.shadow_strength > 0 else None
+    vis = None
+    if light.shadows and rs.shadow_strength > 0:
+        if is_area and light.size > 0:
+            # Soft lateral penumbra: average the visibility of points spread over the light.
+            steps = max(8, rs.shadow_steps // 2)
+            vis = sum(
+                _shadow(scene, reg, lp + _vec([ox, oy, 0.0], reg.pos) - reg.pos, steps, light.softness)
+                for ox, oy in offsets
+            ) / len(offsets)
+        else:
+            vis = _shadow(scene, reg, to_light, rs.shadow_steps, light.softness)
     spec = _specular(n, l, rs, light, rough_boost=0.3 * light.size if is_area else 0.0) * _attenuation(dist, light)
     return diffuse, spec, vis
 
@@ -299,6 +308,12 @@ class Renderer:
         if view == "normals":
             n = scene.normals[:, :, rows]
             return torch.cat([n[:, 0:1] * 0.5 + 0.5, -n[:, 1:2] * 0.5 + 0.5, -n[:, 2:3]], dim=1).clamp(0, 1)
+        if view == "subject":
+            if scene.alpha is None:
+                return (linear_to_srgb(scene.image_lin[:, :, rows]) * 0.25).clamp(0, 1)
+            a = scene.alpha[:, :, rows]
+            # Subject shown in full color, background dimmed: edges are easy to inspect.
+            return (linear_to_srgb(scene.image_lin[:, :, rows]) * (0.15 + 0.85 * a)).clamp(0, 1)
         if view == "occlusion":
             return (1.0 - scene.cavity[:, :, rows]).expand(-1, 3, -1, -1).clamp(0, 1)
 

@@ -206,3 +206,37 @@ def test_original_photo_file_is_never_written(qapp, editor):
     settle(qapp, editor)
     assert path.read_bytes() == before
     assert np.array_equal(load_image(path), editor.ctl.doc.image)
+
+
+def test_ai_matte_is_scheduled_and_applied(qapp, editor, monkeypatch):
+    import relight_studio.ai.matting as matting
+
+    calls = []
+
+    def fake_matte(image, disparity, settings, offset=None, matter=None):
+        calls.append(settings.edge_band)
+        return np.full(image.shape[:2], 255, np.uint8)
+
+    monkeypatch.setattr(matting, "matte_subject", fake_matte)
+    ctl = editor.ctl
+    ctl.update_depth(edge_mode="matting", edge_band=0.03)
+    assert wait_until(qapp, lambda: ctl.current_alpha() is not None, timeout=10)
+    assert calls[-1] == pytest.approx(0.03)
+    jobs = []
+    monkeypatch.setattr(editor.render_service, "request", jobs.append)
+    ctl.update_light(ctl.selected, intensity=2.0)
+    assert jobs[-1].alpha is not None
+    ctl.update_depth(edge_band=0.05)  # settings changed: the old matte no longer applies
+    assert ctl.current_alpha() is None
+    assert wait_until(qapp, lambda: ctl.current_alpha() is not None, timeout=10)
+
+
+def test_fast_and_off_edge_modes_skip_ai_matting(qapp, editor, monkeypatch):
+    import relight_studio.ai.matting as matting
+
+    calls = []
+    monkeypatch.setattr(matting, "matte_subject", lambda *a, **k: calls.append(1))
+    for mode in ("guided", "off"):
+        editor.ctl.update_depth(edge_mode=mode)
+        editor.run_matte()
+    assert calls == []

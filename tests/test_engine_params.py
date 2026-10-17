@@ -88,8 +88,8 @@ def test_smoothing_reduces_normal_noise(device):
 def test_depth_offset_moves_surfaces(device):
     offset = np.zeros((H // 2, W // 2), np.float32)
     offset[:, : W // 4] = 0.3
-    plain = scene_with(device).depth01
-    pushed = scene_with(device, offset=offset).depth01
+    plain = scene_with(device, edge_mode="off").depth01  # isolate the offset from edge refinement
+    pushed = scene_with(device, offset=offset, edge_mode="off").depth01
     assert (pushed[..., :, : W // 2 - 4] - plain[..., :, : W // 2 - 4]).mean() > 0.2
     assert torch.allclose(pushed[..., :, W // 2 + 4 :], plain[..., :, W // 2 + 4 :], atol=0.02)
 
@@ -152,15 +152,18 @@ def test_specular_and_roughness_shape_the_highlight(sphere):
     assert sharp.max() - np.median(sharp) > broad.max() - np.median(broad)
 
 
-def test_area_size_softens_shadows(device):
+def test_area_size_softens_the_shadow_penumbra(device):
     disp = np.full((H, W), 0.1, np.float32)
     disp[30:66, 54:74] = 1.0
     scene = scene_with(device, disparity=disp, relief=0.8, smoothing=0.0)
     spec = dict(x=0.05, y=0.5, z=0.3, intensity=2.0, radius=3.0, softness=0.0)
-    small = lum(scene, [new_light(1, LightType.AREA, size=0.0, **spec)], original_light=0.0, specular=0.0)
-    large = lum(scene, [new_light(1, LightType.AREA, size=0.5, **spec)], original_light=0.0, specular=0.0)
-    edge = (slice(40, 56), slice(76, 96))
-    assert np.abs(np.diff(large[edge], axis=1)).max() < np.abs(np.diff(small[edge], axis=1)).max()
+
+    def penumbra_steepness(size):
+        out = lum(scene, [new_light(1, LightType.AREA, size=size, **spec)], original_light=0.0, specular=0.0)
+        profile = out[14:40, 84:92].mean(axis=1)  # across the top edge of the box's shadow
+        return np.abs(np.diff(profile)).max()
+
+    assert penumbra_steepness(0.5) < 0.6 * penumbra_steepness(0.0)
 
 
 def test_directional_light_comes_from_the_gizmo_side(sphere):

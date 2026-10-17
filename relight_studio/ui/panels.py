@@ -311,7 +311,7 @@ class ScenePanel(QWidget):
         self.view = QComboBox()
         labels = {"result": "Result", "original": "Original", "depth": "Depth map", "normals": "Normals",
                   "albedo": "Albedo estimate", "shading": "Original shading", "lighting": "New lighting only",
-                  "occlusion": "Ambient occlusion"}
+                  "occlusion": "Ambient occlusion", "subject": "Subject matte"}
         for mode in VIEW_MODES:
             self.view.addItem(labels[mode], mode)
         self.view.currentIndexChanged.connect(lambda _: self.ctl.set_view(self.view.currentData()))
@@ -357,6 +357,29 @@ class ScenePanel(QWidget):
         lay.addWidget(self.invert)
         lay.addWidget(hint("Monocular depth is relative: it ranks what is near or far but has no metric scale. "
                            "Use Relief and the depth brush to correct implausible geometry."))
+
+        lay.addSpacing(6)
+        lay.addWidget(divider())
+        lay.addWidget(section_title("Subject edges"))
+        self.edge_mode = QComboBox()
+        for label, mode in (("AI matting (ViTMatte)", "matting"), ("Fast (color based)", "guided"), ("Off", "off")):
+            self.edge_mode.addItem(label, mode)
+        self.edge_mode.setToolTip("How lighting follows the outline of the subject. "
+                                  "AI matting resolves hair strands; Fast uses colors only.")
+        self.edge_mode.currentIndexChanged.connect(lambda _: self.ctl.update_depth(edge_mode=self.edge_mode.currentData()))
+        lay.addWidget(labeled("Refinement", self.edge_mode))
+        self.auto_threshold = QCheckBox("Detect subject automatically")
+        self.auto_threshold.toggled.connect(self._auto_threshold_toggled)
+        lay.addWidget(self.auto_threshold)
+        self.edge_form = ParamForm(
+            [("subject_threshold", "Subject depth", 0.02, 0.98, 2, "",
+              "Normalized depth separating the subject (nearer) from the background", 0.5),
+             ("edge_band", "Edge band", 0.005, 0.08, 3, "",
+              "Width of the uncertain zone around the outline (image heights)", 0.02)],
+            lambda: self.ctl.doc and self.ctl.doc.depth, self.ctl.update_depth)
+        lay.addWidget(self.edge_form)
+        self.edge_status = hint("")
+        lay.addWidget(self.edge_status)
         lay.addStretch(1)
 
         controller.changed.connect(self._on_changed)
@@ -375,6 +398,25 @@ class ScenePanel(QWidget):
             else:
                 self.source.setText("Press Re-analyze to apply.")
 
+    def _auto_threshold_toggled(self, auto: bool) -> None:
+        if not self.ctl.doc:
+            return
+        value = -1.0 if auto else max(self.edge_form.rows["subject_threshold"].value(), 0.02)
+        self.ctl.update_depth(subject_threshold=value)
+
+    def set_edge_status(self, subject_found: bool, ai_matte: bool) -> None:
+        doc = self.ctl.doc
+        if doc is None or doc.depth.edge_mode == "off":
+            self.edge_status.setText("Edge refinement is off: lighting follows the raw depth edges.")
+        elif not subject_found:
+            self.edge_status.setText("No distinct subject found in the depth map. Set the subject depth manually "
+                                     "if the scene has one.")
+        elif doc.depth.edge_mode == "matting" and not ai_matte:
+            self.edge_status.setText("Subject separated with the fast matte (AI matte pending).")
+        else:
+            source = "AI matte" if ai_matte else "fast matte"
+            self.edge_status.setText(f"Subject separated with the {source}. Check it in Display → Subject matte.")
+
     def _on_changed(self, kinds) -> None:
         if kinds & {"relight", "depth", "geometry", "view"}:
             self.refresh()
@@ -383,7 +425,9 @@ class ScenePanel(QWidget):
         doc = self.ctl.doc
         self.relight_form.refresh()
         self.depth_form.refresh()
-        for w in (self.ambient_color, self.rolloff, self.model, self.detail, self.reanalyze, self.invert):
+        self.edge_form.refresh()
+        for w in (self.ambient_color, self.rolloff, self.model, self.detail, self.reanalyze, self.invert,
+                  self.edge_mode, self.auto_threshold):
             w.setEnabled(doc is not None)
         with QSignalBlocker(self.view):
             self.view.setCurrentIndex(self.view.findData(self.ctl.view))
@@ -396,6 +440,13 @@ class ScenePanel(QWidget):
             self.invert.setChecked(doc.depth.invert)
             self.model.setCurrentIndex(self.model.findData(doc.depth.model))
             self.detail.setCurrentIndex(self.detail.findData(doc.depth.detail))
+        with QSignalBlocker(self.edge_mode), QSignalBlocker(self.auto_threshold):
+            self.edge_mode.setCurrentIndex(self.edge_mode.findData(doc.depth.edge_mode))
+            self.auto_threshold.setChecked(doc.depth.subject_threshold < 0)
+        refine = doc.depth.edge_mode != "off"
+        self.auto_threshold.setEnabled(refine)
+        self.edge_form.rows["subject_threshold"].setEnabled(refine and doc.depth.subject_threshold >= 0)
+        self.edge_form.rows["edge_band"].setEnabled(refine)
         if doc.disparity_source:
             self.source.setText(f"Current depth: {doc.disparity_source}")
 

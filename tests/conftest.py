@@ -112,6 +112,8 @@ def editor(qapp, tmp_path, monkeypatch):
             self._update_actions()
 
     monkeypatch.setattr(MainWindow, "run_depth", fake_run_depth)
+    # The AI matte is exercised by the integration tests; here it reports "no subject" instantly.
+    monkeypatch.setattr("relight_studio.ai.matting.matte_subject", lambda *a, **k: None)
     win = MainWindow()
     win.resize(1400, 900)
     win.show()

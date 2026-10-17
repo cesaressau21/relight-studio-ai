@@ -29,9 +29,20 @@ class DepthSettings:
     far: float = 1.0
     gamma: float = 1.0
     invert: bool = False
+    edge_mode: str = "matting"  # "off" | "guided" (fast, color based) | "matting" (AI matte)
+    subject_threshold: float = -1.0  # normalized depth splitting subject/background; < 0 = automatic
+    edge_band: float = 0.02  # width of the uncertain silhouette band, in image heights
+
+    def depth_key(self) -> tuple:
+        """Parameters that change the normalized depth itself."""
+        return (self.near, self.far, self.gamma, self.invert)
+
+    def matte_key(self) -> tuple:
+        """Parameters that change the subject matte."""
+        return (*self.depth_key(), self.edge_mode, self.subject_threshold, self.edge_band)
 
     def geometry_key(self) -> tuple:
-        return (self.relief, self.smoothing, self.near, self.far, self.gamma, self.invert)
+        return (self.relief, self.smoothing, *self.matte_key())
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
