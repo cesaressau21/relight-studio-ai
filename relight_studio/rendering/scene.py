@@ -134,7 +134,7 @@ def opacity_tensor(opacity: np.ndarray | None, h: int, w: int, device: torch.dev
     """uint8 alpha (any resolution) -> 1x1xHxW float tensor in [0, 1]."""
     if opacity is None:
         return None
-    a = torch.from_numpy(np.ascontiguousarray(opacity)).to(device)[None, None].float() / 255.0
+    a = torch.from_numpy(np.array(opacity, dtype=np.uint8, copy=True)).to(device)[None, None].float() / 255.0  # source is read-only
     return resize(a, h, w).clamp(0.0, 1.0)
 
 
