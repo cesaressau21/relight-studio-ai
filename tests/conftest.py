@@ -14,6 +14,11 @@ SAMPLES = ROOT / "samples"
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+# Offscreen Qt needs the real fonts, otherwise text is measured with a wide fallback
+# font and layout tests would not reflect the actual application.
+_WIN_FONTS = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+if _WIN_FONTS.exists():
+    os.environ.setdefault("QT_QPA_FONTDIR", str(_WIN_FONTS))
 
 
 @pytest.fixture(scope="session")

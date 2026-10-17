@@ -51,6 +51,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app �
 | Undo/redo with drag merging | Implemented |
 | Project save/open (`.rsproj`, versioned JSON + layers, cached depth) | Implemented |
 | GPU status, VRAM, render time, progress in the status bar | Implemented |
+| Fits small screens | Implemented: window sized to the screen (maximized below 1300×760 logical), resizable side panel, scrolling tool rail, compact top bar under 1200 px, nothing clipped down to 1280×640 (`tests/test_layout.py`) |
 | CPU fallback with warning | Implemented (`RELIGHT_DEVICE=cpu` forces it) |
 | Windows executable | Implemented: PyInstaller one-folder build (~3.2 GB with the CUDA runtime), verified launching and running depth on the GPU |
 

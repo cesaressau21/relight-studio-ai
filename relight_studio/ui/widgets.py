@@ -168,6 +168,7 @@ def divider() -> QFrame:
 
 def labeled(label: str, widget: QWidget, stretch: bool = True) -> QWidget:
     row = QWidget()
+    row.setObjectName("Row")
     lay = QHBoxLayout(row)
     lay.setContentsMargins(0, 1, 0, 1)
     lay.setSpacing(8)

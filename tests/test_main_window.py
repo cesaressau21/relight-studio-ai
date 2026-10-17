@@ -123,12 +123,16 @@ def test_export_through_the_window(qapp, editor, tmp_path, monkeypatch):
     monkeypatch.setattr(ExportDialog, "exec", lambda self: True)
     monkeypatch.setattr(ExportDialog, "target_path", lambda self: out)
     monkeypatch.setattr(ExportDialog, "options", lambda self: ExportOptions(format="WEBP", quality=80, long_side=90))
+    messages = []
+    original_set_status = editor.set_status
+    monkeypatch.setattr(editor, "set_status", lambda text, error=False: (messages.append(text),
+                                                                         original_set_status(text, error)))
     editor.ctl.update_light(editor.ctl.selected, intensity=4.0)
     editor.export_image()
     assert wait_until(qapp, lambda: editor._export_worker is None, timeout=60)
     with Image.open(out) as im:
         assert im.format == "WEBP" and im.size == (90, 60)
-    assert "Exported" in editor.status_label.text()
+    assert any(m.startswith("Exported") for m in messages)  # later messages may replace it on screen
 
 
 def test_export_dialog_options(qapp):

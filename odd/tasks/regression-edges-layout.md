@@ -14,7 +14,7 @@ Branch: feat/regression-edges-layout (from feat/relight-mvp) · Delivery: ask-on
 |----|-------|-------|--------|----------|
 | T1 | S1 | inline | done | 234 tests pass; new: test_engine_params, test_controller, test_ui_panels, test_ui_canvas_interaction, test_main_window, test_source_hygiene |
 | T2 | S2 | inline | done | tests/test_edges.py (15) RED→GREEN: halo 108→1.8 levels; ViTMatte integration test; area-light penumbra test RED (28→26) → GREEN |
-| T3 | S3 | inline | pending | |
+| T3 | S3 | inline | done | tests/test_layout.py (16) RED 13 failed → GREEN; native captures at 1280x640 and 1366x688 |
 
 Route rationale: sequential single writer; no parallel disjoint units launched together.
 
@@ -24,3 +24,4 @@ Route rationale: sequential single writer; no parallel disjoint units launched t
 - L3 Decision S2: subject matting with hustvl/vitmatte-small-composition-1k (Apache-2.0, native Transformers, no remote code) using a trimap derived from depth; BiRefNet rejected (needs trust_remote_code). Prototype: ~110 ms at 1.5 MP after warm-up, resolves individual hair strands.
 - L4 T1 found real bugs: main_window.py strings were double-encoded (mojibake from an earlier cp1252 conversion; also in the built exe) -> repaired + hygiene test; opening a photo marked the document dirty (first depth estimate) -> fixed + test. QSettings moved to an INI file so tests can isolate it.
 - L5 T2: two-layer silhouette refinement (rendering/edges.py) + ViTMatte matte (ai/matting.py, MatteWorker). Subject detection uses a histogram-valley test (portraits 0.16-0.19 vs ramp ~1.0; Otsu effectiveness alone misclassified sample 2 at 0.81). Push-pull filling inverted rim normals -> replaced by dilation extension. Found: area lights only softened shading, not shadow edges -> multi-sample shadows. Scene build 24 ms -> 79 ms with edges (half-res while dragging). Known limit: two layers only (scarf/shoulder can be split at the threshold).
+- L6 T3 root cause: window minimum width was 1450 px (status texts and combo boxes imposed their full width; a long status raised it to 7714 px) and the Scene tab content needed 398 px in a 360 px panel. Fixes: elastic status/title labels, compact combos with explicit minimum width, QSplitter side panel (300-520 px), scrollable tool rail, icon-only top bar under 1200 px, screen-aware initial geometry (maximized below 1300x760). Tests now use the real Windows fonts offscreen (QT_QPA_FONTDIR), otherwise widths are measured with a wide fallback font.

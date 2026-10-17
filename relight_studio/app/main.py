@@ -39,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from .. import APP_NAME, __version__
     from ..rendering.device import select_device
+    from ..ui.layout import initial_window_rect
     from ..ui.main_window import MainWindow
     from ..ui.theme import apply_theme
 
@@ -55,7 +56,12 @@ def main(argv: list[str] | None = None) -> int:
         log.warning(info.warning)
 
     window = MainWindow()
-    window.show()
+    rect, maximize = initial_window_rect(app.primaryScreen().availableGeometry())
+    window.setGeometry(rect)
+    if maximize:
+        window.showMaximized()
+    else:
+        window.show()
     if len(argv) > 1 and Path(argv[1]).exists():
         window.open_path(Path(argv[1]))
     return app.exec()

@@ -30,6 +30,7 @@ QWidget#Panel {{ border-left: 1px solid {BORDER}; }}
 QStatusBar {{ border-top: 1px solid {BORDER}; color: {MUTED}; }}
 QStatusBar QLabel {{ background: transparent; color: {MUTED}; padding: 0 8px; }}
 QLabel {{ background: transparent; }}
+QWidget#Row {{ background: transparent; }}
 QLabel#Brand {{ font-size: 11pt; font-weight: 600; letter-spacing: 0.3px; }}
 QLabel#BrandAccent {{ font-size: 11pt; font-weight: 600; color: {ACCENT}; }}
 QLabel#SectionTitle {{ color: {MUTED}; font-size: 8pt; font-weight: 600; letter-spacing: 1px; padding-top: 6px; }}

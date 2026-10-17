@@ -19,7 +19,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QProgressBar,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
     QStatusBar,
     QTabWidget,
     QToolButton,
@@ -41,6 +43,7 @@ from . import icons, theme
 from .canvas import Canvas
 from .controller import EditorController
 from .export_dialog import ExportDialog
+from .layout import compact_all_combos, elastic_label
 from .panels import AdjustPanel, LayersPanel, LightsPanel, PresetsPanel, ScenePanel
 from .workers import DepthWorker, ExportWorker, MatteWorker, RenderJob, RenderService, to_qimage
 
@@ -66,7 +69,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         app_icon = assets_dir() / "icon.png"
         self.setWindowIcon(QIcon(str(app_icon)) if app_icon.exists() else icons.icon("sparkle", 32))
-        self.resize(1600, 980)
+        self.resize(1280, 800)  # replaced by the screen-aware placement in app.main
         self.setAcceptDrops(True)
         # INI file under the user profile (relocatable with QSettings.setPath, e.g. in tests).
         self.settings = QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "RelightStudioAI", "RelightStudioAI")
@@ -104,11 +107,20 @@ class MainWindow(QMainWindow):
         body.setSpacing(0)
         body.addWidget(self._build_tool_rail())
         self.canvas = Canvas(self.ctl)
-        body.addWidget(self.canvas, 1)
-        body.addWidget(self._build_side_panel())
+        # The side panel can be resized against the canvas with the splitter handle.
+        self.body_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.body_splitter.setChildrenCollapsible(False)
+        self.body_splitter.setHandleWidth(3)
+        self.body_splitter.addWidget(self.canvas)
+        self.body_splitter.addWidget(self._build_side_panel())
+        self.body_splitter.setStretchFactor(0, 1)
+        self.body_splitter.setStretchFactor(1, 0)
+        self.body_splitter.setSizes([1000, 360])
+        body.addWidget(self.body_splitter, 1)
         root.addLayout(body, 1)
         self.setCentralWidget(central)
         self._build_statusbar()
+        compact_all_combos(self)
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
@@ -144,7 +156,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.undo_btn)
         lay.addWidget(self.redo_btn)
         lay.addStretch(1)
-        self.title_label = QLabel("")
+        self.title_label = elastic_label(QLabel(""))
         self.title_label.setObjectName("Value")
         lay.addWidget(self.title_label)
         lay.addStretch(1)
@@ -174,6 +186,7 @@ class MainWindow(QMainWindow):
         rail = QWidget()
         rail.setObjectName("ToolRail")
         rail.setFixedWidth(52)
+        self.tool_rail = rail
         lay = QVBoxLayout(rail)
         lay.setContentsMargins(6, 10, 6, 10)
         lay.setSpacing(4)
@@ -222,12 +235,24 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.actual_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         lay.addStretch(1)
         self.tool_buttons["select"].setChecked(True)
-        return rail
+        # Scrolls vertically when the window is shorter than the tool column.
+        area = QScrollArea()
+        area.setObjectName("ToolRailArea")
+        area.setWidget(rail)
+        area.setWidgetResizable(True)
+        area.setFixedWidth(52)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        rail.setMinimumHeight(rail.sizeHint().height())
+        self.tool_rail_area = area
+        return area
 
     def _build_side_panel(self) -> QWidget:
         panel = QWidget()
         panel.setObjectName("Panel")
-        panel.setFixedWidth(360)
+        panel.setMinimumWidth(300)
+        panel.setMaximumWidth(520)
+        self.side_panel = panel
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
@@ -253,7 +278,7 @@ class MainWindow(QMainWindow):
     def _build_statusbar(self) -> None:
         sb = QStatusBar()
         sb.setSizeGripEnabled(False)
-        self.status_label = QLabel("Ready")
+        self.status_label = elastic_label(QLabel("Ready"))
         self.progress = QProgressBar()
         self.progress.setFixedWidth(160)
         self.progress.setTextVisible(False)
@@ -265,6 +290,7 @@ class MainWindow(QMainWindow):
         sb.addWidget(self.status_label, 1)
         sb.addWidget(self.progress)
         for w in (self.res_label, self.zoom_label, self.render_label, self.gpu_label):
+            w.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             sb.addPermanentWidget(w)
         self.setStatusBar(sb)
 
@@ -706,6 +732,16 @@ class MainWindow(QMainWindow):
         path = Path(e.mimeData().urls()[0].toLocalFile())
         if self._confirm_discard():
             self.open_path(path)
+
+    def resizeEvent(self, e) -> None:  # noqa: N802
+        """Trade labels for room on narrow windows so every action stays visible."""
+        narrow = self.width() < 1200
+        style = Qt.ToolButtonStyle.ToolButtonIconOnly if narrow else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        for button in (self.open_btn, self.save_btn, self.compare_btn):
+            button.setToolButtonStyle(style)
+        self.res_label.setVisible(self.width() >= 1100)
+        self.zoom_label.setVisible(self.width() >= 900)
+        super().resizeEvent(e)
 
     def closeEvent(self, e: QCloseEvent) -> None:  # noqa: N802
         if not self._confirm_discard():
