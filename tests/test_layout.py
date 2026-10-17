@@ -110,3 +110,10 @@ def test_layout_survives_a_full_render_at_small_size(qapp, editor):
     assert wait_until(qapp, lambda: editor.canvas.result is not None)
     rect = editor.canvas.image_rect()
     assert rect.width() <= editor.canvas.width() and rect.height() <= editor.canvas.height()
+
+
+def test_title_shows_the_whole_file_name_when_there_is_room(qapp, editor):
+    editor.resize(1500, 900)
+    qapp.processEvents()
+    label = editor.title_label
+    assert label.width() >= label.fontMetrics().horizontalAdvance(label.text())

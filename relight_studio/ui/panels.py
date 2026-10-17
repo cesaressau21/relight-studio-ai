@@ -406,7 +406,10 @@ class ScenePanel(QWidget):
 
     def set_edge_status(self, subject_found: bool, ai_matte: bool) -> None:
         doc = self.ctl.doc
-        if doc is None or doc.depth.edge_mode == "off":
+        if doc is not None and doc.opacity is not None:
+            self.edge_status.setText("Using the image's transparency as the subject outline: transparent "
+                                     "areas are ignored by depth and lighting.")
+        elif doc is None or doc.depth.edge_mode == "off":
             self.edge_status.setText("Edge refinement is off: lighting follows the raw depth edges.")
         elif not subject_found:
             self.edge_status.setText("No distinct subject found in the depth map. Set the subject depth manually "

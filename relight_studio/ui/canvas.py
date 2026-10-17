@@ -11,6 +11,7 @@ import math
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
+    QBrush,
     QColor,
     QFont,
     QImage,
@@ -18,6 +19,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPen,
+    QPixmap,
     QRadialGradient,
     QWheelEvent,
 )
@@ -57,6 +59,7 @@ class Canvas(QWidget):
         self.hold_original = False
         self.show_gizmos = True
         self.busy_text = ""
+        self._checker: QBrush | None = None
 
         self._drag: str | None = None  # light | pan | split | brush
         self._drag_light: int | None = None
@@ -166,6 +169,8 @@ class Canvas(QWidget):
         rect = self.image_rect()
         # Soft drop shadow behind the photo.
         p.fillRect(rect.adjusted(-1, -1, 1, 1), QColor(0, 0, 0, 120))
+        if doc.opacity is not None:
+            self._paint_checkerboard(p, rect)
         shown = self.original if (self.hold_original or self.result is None) else self.result
         p.drawImage(rect, shown)
         if self.compare_split and self.result is not None and not self.hold_original:
@@ -207,6 +212,21 @@ class Canvas(QWidget):
         p.setPen(QColor(theme.MUTED))
         p.drawText(QRectF(0, c.y() + 22, self.width(), 24), Qt.AlignmentFlag.AlignCenter,
                    "Ctrl+O  ·  or drop a JPEG, PNG, WebP or TIFF here")
+
+    def _paint_checkerboard(self, p: QPainter, rect: QRectF) -> None:
+        """Transparent areas are shown over a neutral checkerboard (screen-space, fixed size)."""
+        if self._checker is None:
+            tile = QPixmap(16, 16)
+            tile.fill(QColor("#3a3a3f"))
+            tp = QPainter(tile)
+            tp.fillRect(0, 0, 8, 8, QColor("#2c2c30"))
+            tp.fillRect(8, 8, 8, 8, QColor("#2c2c30"))
+            tp.end()
+            self._checker = QBrush(tile)
+        p.save()
+        p.setBrushOrigin(rect.topLeft())
+        p.fillRect(rect, self._checker)
+        p.restore()
 
     def _paint_split(self, p: QPainter, x: float, rect: QRectF) -> None:
         p.setRenderHint(QPainter.RenderHint.Antialiasing)

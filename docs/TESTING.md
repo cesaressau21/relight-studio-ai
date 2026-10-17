@@ -28,6 +28,7 @@ their settings in a temporary INI file, so they never touch your real configurat
 | Canvas | `test_canvas.py`, `test_ui_canvas_interaction.py` | real mouse/wheel/keyboard: drag lights, place tools, modifiers, brushes, pan/zoom, compare, side view |
 | Main window | `test_main_window.py` | shortcuts, tool rail, save/open project, missing photo, export, close prompt, drag & drop, render queue |
 | Screen fitting | `test_layout.py` | window fits the available screen, panels never clip horizontally, tool rail reachable on small screens |
+| Transparency | `test_transparency.py` | PNG/WebP alpha loading, hidden background never affects the subject, RGBA render, alpha export / JPEG fill, editor workflow, projects |
 | Hygiene | `test_source_hygiene.py` | UTF-8 sources without double-encoded text, valid preset JSON |
 | End to end | `test_integration.py` | real Depth Anything V2 + ViTMatte, full MVP workflow in the UI, depth race |
 

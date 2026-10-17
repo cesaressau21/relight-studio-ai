@@ -53,6 +53,7 @@ class DocState:
 class Document:
     image: np.ndarray  # H x W x 3 uint8 sRGB, read-only
     image_path: Path | None = None
+    opacity: np.ndarray | None = None  # H x W uint8 transparency of the source (None = opaque), read-only
     rig: LightRig = field(default_factory=LightRig)
     relight: RelightSettings = field(default_factory=RelightSettings)
     depth: DepthSettings = field(default_factory=DepthSettings)
@@ -69,6 +70,10 @@ class Document:
         if self.image.dtype != np.uint8 or self.image.ndim != 3 or self.image.shape[2] != 3:
             raise ValueError("Document image must be an H x W x 3 uint8 array")
         self.image.setflags(write=False)
+        if self.opacity is not None:
+            if self.opacity.shape != self.image.shape[:2] or self.opacity.dtype != np.uint8:
+                raise ValueError("Document opacity must be an H x W uint8 array matching the image")
+            self.opacity.setflags(write=False)
 
     # ------------------------------------------------------------------ geometry
     @property

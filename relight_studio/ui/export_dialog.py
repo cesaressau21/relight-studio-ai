@@ -21,11 +21,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.image_io import EXPORT_FORMATS, ExportOptions
+from .widgets import ColorButton
 
 
 class ExportDialog(QDialog):
-    def __init__(self, width: int, height: int, default_path: Path, parent: QWidget | None = None) -> None:
+    def __init__(self, width: int, height: int, default_path: Path, parent: QWidget | None = None,
+                 has_alpha: bool = False) -> None:
         super().__init__(parent)
+        self.has_alpha = has_alpha
         self.setWindowTitle("Export image")
         self.setMinimumWidth(460)
         self.src_w, self.src_h = width, height
@@ -56,6 +59,24 @@ class ExportDialog(QDialog):
         self.size.currentIndexChanged.connect(self._update_info)
         form.addRow("Resolution", self.size)
 
+        self.transparent = QCheckBox("Keep transparency")
+        self.transparent.setChecked(True)
+        self.transparent.setToolTip("PNG and WebP keep the image's alpha channel. JPEG has no transparency.")
+        self.transparent.toggled.connect(self._format_changed)
+        self.background = ColorButton((1.0, 1.0, 1.0))
+        self.background.setToolTip("Fill for transparent areas when transparency is not kept")
+        bg_row = QHBoxLayout()
+        bg_row.addWidget(self.transparent)
+        bg_row.addSpacing(12)
+        bg_row.addWidget(QLabel("Background"))
+        bg_row.addWidget(self.background)
+        bg_row.addStretch(1)
+        self.transparency_row = QWidget()
+        self.transparency_row.setLayout(bg_row)
+        self.transparency_row.setVisible(has_alpha)
+        form.addRow("Transparency", self.transparency_row)
+        form.labelForField(self.transparency_row).setVisible(has_alpha)
+
         self.icc = QCheckBox("Embed sRGB IEC61966-2.1 profile")
         self.icc.setChecked(True)
         form.addRow("Color profile", self.icc)
@@ -83,6 +104,10 @@ class ExportDialog(QDialog):
     def _format_changed(self) -> None:
         fmt = self.format.currentData()
         self.quality.setEnabled(fmt in ("JPEG", "WEBP"))
+        if hasattr(self, "transparent"):
+            alpha_ok = fmt in ("PNG", "WEBP")
+            self.transparent.setEnabled(alpha_ok)
+            self.background.setEnabled(not (alpha_ok and self.transparent.isChecked()))
         path = Path(self.path.text())
         self.path.setText(str(path.with_suffix(EXPORT_FORMATS[fmt])))
         self._update_info()
@@ -105,6 +130,8 @@ class ExportDialog(QDialog):
             quality=self.quality.value(),
             long_side=self.size.currentData(),
             embed_srgb=self.icc.isChecked(),
+            keep_transparency=self.transparent.isChecked(),
+            background=self.background.color(),
         )
 
     def target_path(self) -> Path:

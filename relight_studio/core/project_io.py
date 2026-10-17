@@ -138,10 +138,12 @@ def read_project(path: str | Path) -> ProjectData:
     return ProjectData(manifest, mask, offset, disp)
 
 
-def build_document(data: ProjectData, image: np.ndarray, image_path: Path) -> Document:
+def build_document(data: ProjectData, image: np.ndarray, image_path: Path,
+                   opacity: np.ndarray | None = None) -> Document:
     m = data.manifest
     doc = Document(
         image=image,
+        opacity=opacity,
         image_path=image_path,
         rig=LightRig([Light.from_dict(d) for d in m.get("lights", [])]),
         relight=RelightSettings.from_dict(m.get("relight")),

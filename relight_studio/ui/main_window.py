@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME, __version__
 from ..ai.depth import MODELS
 from ..core.document import Document
-from ..core.image_io import SUPPORTED_INPUT, load_image
+from ..core.image_io import SUPPORTED_INPUT, load_image_with_alpha
 from ..core.lights import LightType
 from ..core.paths import assets_dir
 from ..core.presets import load_presets
@@ -155,11 +155,11 @@ class MainWindow(QMainWindow):
         self.redo_btn = tool_button("redo", "Redo (Ctrl+Y)", size=18)
         lay.addWidget(self.undo_btn)
         lay.addWidget(self.redo_btn)
-        lay.addStretch(1)
+        # The title takes the free space in the middle (centered) and is cut only when there is none.
         self.title_label = elastic_label(QLabel(""))
         self.title_label.setObjectName("Value")
-        lay.addWidget(self.title_label)
-        lay.addStretch(1)
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(self.title_label, 1)
         self.compare_btn = self._top_action("compare", "Compare", "Before / after split view (C).\nHold \\ to see the original")
         self.compare_btn.setCheckable(True)
         lay.addWidget(self.compare_btn)
@@ -445,7 +445,7 @@ class MainWindow(QMainWindow):
         self.canvas.update()
         self.progress.setRange(0, 0)
         self.progress.setVisible(True)
-        worker = DepthWorker(self.ctl.preview_image, model, detail, self)
+        worker = DepthWorker(self.ctl.analysis_image(), model, detail, self)
         worker.done.connect(lambda disp, src, sec, target=doc: self._on_depth(target, disp, src, sec))
         worker.failed.connect(self._on_depth_failed)
         worker.finished.connect(self._depth_finished)
@@ -476,7 +476,7 @@ class MainWindow(QMainWindow):
     # ================================================================== render
     def _on_document_loaded(self) -> None:
         self._image_key += 1
-        self.canvas.set_original(to_qimage(self.ctl.preview_image))
+        self.canvas.set_original(to_qimage(self.ctl.preview_rgba()))
         self.canvas.fit()
         doc = self.ctl.doc
         ph, pw = self.ctl.preview_image.shape[:2]
@@ -498,7 +498,7 @@ class MainWindow(QMainWindow):
     def run_matte(self) -> None:
         """Compute the AI subject matte when the edge mode needs it and it is out of date."""
         doc = self.ctl.doc
-        if doc is None or doc.disparity is None or doc.depth.edge_mode != "matting":
+        if doc is None or doc.disparity is None or doc.depth.edge_mode != "matting" or doc.opacity is not None:
             return
         key = self.ctl.matte_key()
         if doc.alpha_key == key:
@@ -508,7 +508,7 @@ class MainWindow(QMainWindow):
             return
         self._matte_rerun = False
         offset = doc.depth_offset.copy() if (doc.depth_offset is not None and doc.mask_settings.depth_edits_enabled) else None
-        worker = MatteWorker(self.ctl.preview_image, doc.disparity, copy.deepcopy(doc.depth), offset, key, self)
+        worker = MatteWorker(self.ctl.analysis_image(), doc.disparity, copy.deepcopy(doc.depth), offset, key, self)
         worker.done.connect(lambda alpha, k, sec, target=doc: self._on_matte(target, alpha, k, sec))
         worker.failed.connect(lambda m: self.set_status(m, error=True))
         worker.finished.connect(self._matte_finished)
@@ -562,6 +562,7 @@ class MainWindow(QMainWindow):
             mask_version=self._mask_copy[0],
             alpha=self.ctl.current_alpha(),
             alpha_version=self.ctl.alpha_version,
+            opacity=self.ctl.preview_opacity,
             interactive=self._interactive,
         )
         self.render_service.request(job)
@@ -608,14 +609,16 @@ class MainWindow(QMainWindow):
     def open_image(self, path: Path) -> None:
         try:
             start = time.perf_counter()
-            image = load_image(path)
+            image, opacity = load_image_with_alpha(path)
         except Exception as exc:
             QMessageBox.critical(self, "Cannot open image", f"{path}\n\n{exc}")
             return
-        doc = Document(image=image, image_path=path)
+        doc = Document(image=image, image_path=path, opacity=opacity)
         doc.add_light(LightType.POINT, name="Key", x=0.28, y=0.3, z=-0.35)
         self.ctl.load_document(doc)
-        self.set_status(f"Opened {path.name} ({doc.width}×{doc.height}) in {time.perf_counter() - start:.2f}s")
+        transparency = " with transparency" if opacity is not None else ""
+        self.set_status(f"Opened {path.name} ({doc.width}×{doc.height}{transparency}) in "
+                        f"{time.perf_counter() - start:.2f}s")
         self.run_depth()
 
     def open_project(self, path: Path) -> None:
@@ -633,7 +636,7 @@ class MainWindow(QMainWindow):
                 return
             image_path = Path(located)
         try:
-            image = load_image(image_path)
+            image, opacity = load_image_with_alpha(image_path)
         except Exception as exc:
             QMessageBox.critical(self, "Cannot open image", f"{image_path}\n\n{exc}")
             return
@@ -642,7 +645,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Different photo", "The photo dimensions differ from the project; "
                                 "masks and depth edits were reset.")
             data.mask = data.depth_offset = data.disparity = None
-        doc = build_document(data, image, image_path)
+        doc = build_document(data, image, image_path, opacity)
         self.ctl.load_document(doc, project_path=path)
         self.set_status(f"Opened project {path.name}")
         wanted = f"{doc.depth.model}/{doc.depth.detail}"
@@ -677,7 +680,8 @@ class MainWindow(QMainWindow):
             return
         base = doc.image_path or Path.home() / "relit"
         default = base.with_name(base.stem + "_relit.png")
-        dialog = ExportDialog(doc.width, doc.height, Path(self.settings.value("export_dir", str(default.parent))) / default.name, self)
+        dialog = ExportDialog(doc.width, doc.height, Path(self.settings.value("export_dir", str(default.parent))) / default.name,
+                              self, has_alpha=doc.opacity is not None)
         if not dialog.exec():
             return
         path, options = dialog.target_path(), dialog.options()
@@ -689,6 +693,7 @@ class MainWindow(QMainWindow):
             mask=None if doc.mask is None else doc.mask.copy(),
             depth_offset=None if doc.depth_offset is None else doc.depth_offset.copy(),
             alpha=self.ctl.current_alpha(),
+            opacity=doc.opacity,
         )
         worker = ExportWorker(snapshot, self._params(view="result"), options, path, self)
         worker.progress.connect(self.progress.setValue)

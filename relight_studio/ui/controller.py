@@ -48,6 +48,7 @@ class EditorController(QObject):
         self.project_path: Path | None = None
         self.dirty = False
         self.preview_image: np.ndarray | None = None
+        self.preview_opacity: np.ndarray | None = None
         self.mask_version = 0
         self.offset_version = 0
         self.disparity_version = 0
@@ -59,10 +60,11 @@ class EditorController(QObject):
         self.doc = doc
         self.project_path = project_path
         w, h = fit_size(doc.width, doc.height, preview_max_side())
-        self.preview_image = (
-            doc.image if (w, h) == (doc.width, doc.height)
-            else cv2.resize(doc.image, (w, h), interpolation=cv2.INTER_AREA)
-        )
+        same = (w, h) == (doc.width, doc.height)
+        self.preview_image = doc.image if same else cv2.resize(doc.image, (w, h), interpolation=cv2.INTER_AREA)
+        self.preview_opacity = None
+        if doc.opacity is not None:
+            self.preview_opacity = doc.opacity if same else cv2.resize(doc.opacity, (w, h), interpolation=cv2.INTER_AREA)
         self.selected = doc.lights[0].id if doc.lights else None
         self.history.reset(doc.snapshot())
         self.mask_version += 1
@@ -73,6 +75,21 @@ class EditorController(QObject):
         self.selectionChanged.emit(self.selected)
         self.historyChanged.emit()
         self.changed.emit(ALL_KINDS)
+
+    def analysis_image(self) -> np.ndarray:
+        """Preview image for the AI models: transparent areas shown as neutral gray, not black."""
+        assert self.preview_image is not None
+        if self.preview_opacity is None:
+            return self.preview_image
+        a = self.preview_opacity[..., None].astype(np.float32) / 255.0
+        return (self.preview_image.astype(np.float32) * a + 128.0 * (1.0 - a) + 0.5).astype(np.uint8)
+
+    def preview_rgba(self) -> np.ndarray:
+        """Preview for display (RGB, or RGBA when the image has transparency)."""
+        assert self.preview_image is not None
+        if self.preview_opacity is None:
+            return self.preview_image
+        return np.dstack([self.preview_image, self.preview_opacity])
 
     @property
     def has_document(self) -> bool:

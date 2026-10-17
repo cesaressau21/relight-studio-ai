@@ -282,17 +282,23 @@ class Renderer:
         chunk_rows: int | None = None,
         progress: Callable[[float], None] | None = None,
     ) -> np.ndarray:
-        """Render to an H x W x 3 uint8 sRGB array (rows processed in chunks)."""
+        """Render to an H x W x 3 uint8 sRGB array (rows processed in chunks).
+
+        Images with transparency return H x W x 4: the relit colors plus the
+        original alpha, untouched.
+        """
         h, w = scene.height, scene.width
         if chunk_rows is None:
             chunk_rows = max(64, int(4_000_000 / max(w, 1)))  # bound GPU temporaries
-        out = np.empty((h, w, 3), np.uint8)
+        out = np.empty((h, w, 3 if scene.opacity is None else 4), np.uint8)
+        if scene.opacity is not None:
+            out[..., 3] = (scene.opacity[0, 0] * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
         halo = 1  # the 3x3 shadow filter reads one row beyond each chunk
         for y0 in range(0, h, chunk_rows):
             y1 = min(h, y0 + chunk_rows)
             ya, yb = max(0, y0 - halo), min(h, y1 + halo)
             rgb = self.render_region(scene, params, ya, yb)[:, :, y0 - ya : y0 - ya + (y1 - y0)]
-            out[y0:y1] = (rgb[0].permute(1, 2, 0) * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
+            out[y0:y1, :, :3] = (rgb[0].permute(1, 2, 0) * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
             if progress:
                 progress(y1 / h)
         return out

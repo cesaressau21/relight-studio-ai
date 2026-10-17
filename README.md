@@ -78,7 +78,7 @@ alone is several GB). Model weights are not bundled; they download on first run.
 
 | Action | How |
 |---|---|
-| Open photo / project | `Ctrl+O`, or drop a file on the window |
+| Open photo / project | `Ctrl+O`, or drop a file on the window (PNG/WebP transparency is kept) |
 | Place a light | Pick a light tool on the left (`P` point, `A` area, `L` directional, `R` rim) and click the photo |
 | Move a light | Drag its gizmo (`V` select tool); arrows nudge, `Shift` for bigger steps |
 | Light depth (Z) | `Ctrl` + wheel over the canvas, or drag the dot in **Lights → Side view** |

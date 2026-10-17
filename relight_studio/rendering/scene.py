@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from ..core.settings import DepthSettings
-from .edges import guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
+from .edges import fill_from, guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
 from .filters import gaussian_blur, guided_filter, luminance, resize, srgb_to_linear
 
 
@@ -36,6 +36,7 @@ class Scene:
     cavity: torch.Tensor  # 1x1xHxW screen-space occlusion term in [0, 1]
     mask: torch.Tensor | None  # 1x1xHxW relight mask in [0, 1]
     alpha: torch.Tensor | None = None  # 1x1xHxW subject matte (None = no subject separation)
+    opacity: torch.Tensor | None = None  # 1x1xHxW transparency of the source image (None = opaque)
 
     @property
     def aspect(self) -> float:
@@ -52,9 +53,16 @@ class Scene:
         return resize(self.depth01, h, w)[0, 0].float().cpu().numpy()
 
 
-def normalize_disparity(disparity: torch.Tensor, settings: DepthSettings) -> torch.Tensor:
-    """Relative inverse depth -> normalized depth in [0, 1] (0 = near), with user remap."""
+def normalize_disparity(disparity: torch.Tensor, settings: DepthSettings,
+                        valid: torch.Tensor | None = None) -> torch.Tensor:
+    """Relative inverse depth -> normalized depth in [0, 1] (0 = near), with user remap.
+
+    ``valid`` (same size, > 0.5 = use) restricts the range estimate to visible pixels,
+    so a transparent background does not consume the depth range.
+    """
     flat = disparity.flatten()
+    if valid is not None and bool((valid > 0.5).any()):
+        flat = disparity[valid > 0.5].flatten()
     if flat.numel() > 1_000_000:
         flat = flat[:: flat.numel() // 1_000_000 + 1]
     lo, hi = torch.quantile(flat, torch.tensor([0.01, 0.99], device=flat.device))
@@ -101,14 +109,43 @@ def scene_depth(
     settings: DepthSettings,
     device: torch.device,
     depth_offset: np.ndarray | None = None,
+    opacity: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Normalized depth (0 = near) at the given size, including the user's depth edits."""
+    """Normalized depth (0 = near) at the given size, including the user's depth edits.
+
+    With ``opacity`` (1x1xHxW in [0, 1]) the depth range comes from visible pixels only
+    and fully transparent pixels are pushed behind the subject.
+    """
     disp = torch.from_numpy(np.ascontiguousarray(disparity, dtype=np.float32)).to(device)[None, None]
-    depth = resize(normalize_disparity(disp, settings), height, width)
+    valid = None if opacity is None else resize(opacity, *disp.shape[-2:])
+    depth = resize(normalize_disparity(disp, settings, valid), height, width)
+    if opacity is not None:
+        depth = torch.where(opacity < 0.02, torch.full_like(depth, TRANSPARENT_DEPTH), depth)
     if depth_offset is not None:
         off = torch.from_numpy(np.ascontiguousarray(depth_offset, dtype=np.float32)).to(device)[None, None]
         depth = (depth + resize(off, height, width)).clamp(-0.5, 1.5)
     return depth
+
+
+TRANSPARENT_DEPTH = 1.25  # behind the farthest visible surface
+
+
+def opacity_tensor(opacity: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:
+    """uint8 alpha (any resolution) -> 1x1xHxW float tensor in [0, 1]."""
+    if opacity is None:
+        return None
+    a = torch.from_numpy(np.ascontiguousarray(opacity)).to(device)[None, None].float() / 255.0
+    return resize(a, h, w).clamp(0.0, 1.0)
+
+
+def bleed_colors(img: torch.Tensor, opacity: torch.Tensor) -> torch.Tensor:
+    """Replace colors under fully transparent pixels by nearby visible colors.
+
+    Files store arbitrary colors (often black) where alpha is 0; without this
+    they would bleed into the albedo/shading estimate along the outline.
+    """
+    visible = (opacity > 0.004).to(img.dtype)
+    return torch.where(visible > 0.5, img, fill_from(img, visible))
 
 
 def edge_band_px(settings: DepthSettings, height: int) -> int:
@@ -140,6 +177,7 @@ def build_scene(
     depth_offset: np.ndarray | None = None,
     mask: np.ndarray | None = None,
     alpha: np.ndarray | None = None,
+    opacity: np.ndarray | None = None,
 ) -> Scene:
     """Build all cached maps for ``image`` (already at the target resolution).
 
@@ -150,16 +188,23 @@ def build_scene(
         mask: relight mask at edit resolution (uint8, 255 = apply).
         alpha: subject matte from an AI matting model (uint8, any resolution); used
             when ``settings.edge_mode == "matting"``, otherwise a fast matte is estimated.
+        opacity: the image's own transparency (uint8, any resolution). Transparent
+            pixels are not part of the scene, and the transparency is the subject outline.
     """
     h, w = image.shape[:2]
     img = _image_tensor(image, device)
+    op = opacity_tensor(opacity, h, w, device)
+    if op is not None:
+        img = bleed_colors(img, op)
     image_lin = srgb_to_linear(img)
-    depth = scene_depth(h, w, disparity, settings, device, depth_offset)
+    depth = scene_depth(h, w, disparity, settings, device, depth_offset, op)
     s = float(np.clip(settings.smoothing, 0.0, 1.0))
     relief = max(float(settings.relief), 1e-3)
 
     alpha_t = None
-    if settings.edge_mode in ("guided", "matting"):
+    if op is not None:
+        alpha_t = op  # the file's own transparency is the exact outline
+    elif settings.edge_mode in ("guided", "matting"):
         band = edge_band_px(settings, h)
         if settings.edge_mode == "matting" and alpha is not None:
             a = torch.from_numpy(np.ascontiguousarray(alpha)).to(device)[None, None].float() / 255.0
@@ -199,7 +244,7 @@ def build_scene(
     shading = (shading / ref).clamp(0.08, 1.5)
 
     return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
-                 mask_tensor(mask, h, w, device), alpha_t)
+                 mask_tensor(mask, h, w, device), alpha_t, op)
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:

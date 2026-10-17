@@ -9,6 +9,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app Â
 | Criterion | Status | Evidence |
 |---|---|---|
 | Open a real photograph | Implemented | JPEG/PNG/WebP/TIFF/BMP, EXIF orientation, ICC â†’ sRGB (`tests/test_io.py`) |
+| Transparent images (PNG/WebP alpha) | Implemented | transparency kept and used as the exact subject outline; hidden colors under alpha never reach depth or lighting; shown over a checkerboard; PNG/WebP export keeps alpha, JPEG (or unchecked *Keep transparency*) fills with a chosen color (`tests/test_transparency.py`) |
 | Depth map from a real model | Implemented | Depth Anything V2 Small via Transformers (`tests/test_integration.py`) |
 | A light with X, Y, Z control | Implemented | canvas drag, `Ctrl`+wheel, side view, numeric fields |
 | Intensity, color, radius | Implemented | panel + wheel modifiers (`tests/test_engine.py`) |

@@ -31,8 +31,11 @@ log = logging.getLogger(__name__)
 
 
 def to_qimage(rgb: np.ndarray) -> QImage:
+    """RGB or RGBA (straight alpha) uint8 array -> QImage."""
     rgb = np.ascontiguousarray(rgb)
     h, w = rgb.shape[:2]
+    if rgb.ndim == 3 and rgb.shape[2] == 4:
+        return QImage(rgb.data, w, h, 4 * w, QImage.Format.Format_RGBA8888).copy()
     return QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
 
 
@@ -50,6 +53,7 @@ class RenderJob:
     mask_version: int
     alpha: np.ndarray | None = None  # AI subject matte (None = estimate edges in the scene builder)
     alpha_version: int = 0
+    opacity: np.ndarray | None = None  # the image's own transparency (preview resolution)
     interactive: bool = False
     stats: dict = field(default_factory=dict)
 
@@ -80,7 +84,8 @@ class RenderWorker(QObject):
                 image = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))),
                                    interpolation=cv2.INTER_AREA)
             start = time.perf_counter()
-            scene = build_scene(image, job.disparity, job.depth, self.device, job.offset, job.mask, job.alpha)
+            scene = build_scene(image, job.disparity, job.depth, self.device, job.offset, job.mask, job.alpha,
+                                job.opacity)
             job.stats["scene_ms"] = (time.perf_counter() - start) * 1000
             self._scenes[scale] = (key, scene)
             self._mask_versions[scale] = job.mask_version
@@ -257,7 +262,7 @@ def render_export(
     w, h = options.target_size(doc.width, doc.height)
     image = doc.image if (w, h) == (doc.width, doc.height) else cv2.resize(doc.image, (w, h), interpolation=cv2.INTER_AREA)
     offset = doc.depth_offset if doc.mask_settings.depth_edits_enabled else None
-    scene = build_scene(image, doc.disparity, doc.depth, device, offset, doc.mask, doc.alpha)
+    scene = build_scene(image, doc.disparity, doc.depth, device, offset, doc.mask, doc.alpha, doc.opacity)
     if progress:
         progress(0.1)
     renderer = Renderer()
