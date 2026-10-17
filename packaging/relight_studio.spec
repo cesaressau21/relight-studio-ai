@@ -9,6 +9,7 @@ ROOT = Path(SPECPATH).parent
 hidden = (
     collect_submodules("transformers.models.depth_anything")
     + collect_submodules("transformers.models.dpt")
+    + collect_submodules("transformers.models.vitmatte")
     + ["PIL.ImageCms"]
 )
 
