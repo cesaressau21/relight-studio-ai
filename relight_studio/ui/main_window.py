@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QDragEnterEvent, QDropEvent, QImage, QKeySequence, QShortcut
+from PySide6.QtGui import QCloseEvent, QIcon, QDragEnterEvent, QDropEvent, QImage, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -32,6 +32,7 @@ from ..ai.depth import MODELS
 from ..core.document import Document
 from ..core.image_io import SUPPORTED_INPUT, load_image
 from ..core.lights import LightType
+from ..core.paths import assets_dir
 from ..core.presets import load_presets
 from ..core.project_io import PROJECT_EXTENSION, ProjectError, build_document, read_project, save_project
 from ..rendering.device import select_device, vram_usage
@@ -63,7 +64,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.setWindowIcon(icons.icon("sparkle", 32))
+        app_icon = assets_dir() / "icon.png"
+        self.setWindowIcon(QIcon(str(app_icon)) if app_icon.exists() else icons.icon("sparkle", 32))
         self.resize(1600, 980)
         self.setAcceptDrops(True)
         self.settings = QSettings("RelightStudioAI", "RelightStudioAI")
@@ -72,6 +74,7 @@ class MainWindow(QMainWindow):
         self.ctl = EditorController()
         self.render_service = RenderService(self)
         self._depth_worker: DepthWorker | None = None
+        self._depth_rerun = False
         self._export_worker: ExportWorker | None = None
         self._image_key = 0
         self._offset_copy: tuple[int, np.ndarray | None] = (-1, None)
@@ -200,12 +203,12 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.ambient_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         lay.addSpacing(6)
         label("PAINT")
-        add_tool("mask", "mask", "Relight mask brush (B)\nAlt / right-drag erases · [ ] size")
-        add_tool("depth", "depth", "Depth correction brush (D)\nDrag pushes away · Alt / right-drag pulls closer")
+        add_tool("mask", "mask", "Relight mask brush (B)\nAlt / right-drag erases Â· [ ] size")
+        add_tool("depth", "depth", "Depth correction brush (D)\nDrag pushes away Â· Alt / right-drag pulls closer")
         lay.addSpacing(6)
         label("VIEW")
         add_tool("pan", "hand", "Pan (hold Space)")
-        add_tool("zoom", "zoom", "Zoom (Z) · Alt-click zooms out")
+        add_tool("zoom", "zoom", "Zoom (Z) Â· Alt-click zooms out")
         self.fit_btn = tool_button("fit", "Fit to window (Ctrl+0)")
         self.fit_btn.clicked.connect(self.canvas_fit)
         lay.addWidget(self.fit_btn, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -362,16 +365,16 @@ class MainWindow(QMainWindow):
             self.title_label.setText("")
             return
         name = (self.ctl.project_path or doc.image_path or Path("Untitled")).name
-        mark = " •" if self.ctl.dirty else ""
+        mark = " â€¢" if self.ctl.dirty else ""
         self.title_label.setText(f"{name}{mark}")
-        self.setWindowTitle(f"{name}{mark} — {APP_NAME}")
+        self.setWindowTitle(f"{name}{mark} â€” {APP_NAME}")
 
     def _update_gpu(self) -> None:
         info = self.device_info
         usage = vram_usage()
         if usage:
             used, total = usage
-            self.gpu_label.setText(f"GPU {info.name.replace('NVIDIA GeForce ', '')} · {used / 2**30:.1f}/{total / 2**30:.0f} GB")
+            self.gpu_label.setText(f"GPU {info.name.replace('NVIDIA GeForce ', '')} Â· {used / 2**30:.1f}/{total / 2**30:.0f} GB")
         else:
             self.gpu_label.setText("CPU mode")
             self.gpu_label.setStyleSheet(f"color: {theme.ACCENT};")
@@ -386,18 +389,22 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda m: self.set_status(m.splitlines()[0], error=True))
         self._warmup_worker = worker
         if not self.device_info.warning:
-            self.set_status("Loading depth model…")
+            self.set_status("Loading depth modelâ€¦")
         worker.start()
 
     def _on_warmup(self, _disp, _key, seconds: float) -> None:
         self._model_ready = True
         if self._depth_worker is None:
-            self.set_status(f"Depth model ready ({seconds:.1f}s) — {MODELS['small'].label}, {MODELS['small'].license}")
+            self.set_status(f"Depth model ready ({seconds:.1f}s) â€” {MODELS['small'].label}, {MODELS['small'].license}")
 
     def run_depth(self) -> None:
         doc = self.ctl.doc
-        if doc is None or self._depth_worker is not None:
+        if doc is None:
             return
+        if self._depth_worker is not None:
+            self._depth_rerun = True  # restart for the current document when the running job ends
+            return
+        self._depth_rerun = False
         model, detail = doc.depth.model, doc.depth.detail
         spec = MODELS[model]
         self.set_status(f"Analyzing depth with {spec.label} ({detail})…")
@@ -406,17 +413,22 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0)
         self.progress.setVisible(True)
         worker = DepthWorker(self.ctl.preview_image, model, detail, self)
-        worker.done.connect(self._on_depth)
+        worker.done.connect(lambda disp, src, sec, target=doc: self._on_depth(target, disp, src, sec))
         worker.failed.connect(self._on_depth_failed)
-        worker.finished.connect(lambda: setattr(self, "_depth_worker", None))
+        worker.finished.connect(self._depth_finished)
         self._depth_worker = worker
         worker.start()
 
-    def _on_depth(self, disparity, source: str, seconds: float) -> None:
+    def _depth_finished(self) -> None:
+        self._depth_worker = None
+        if self._depth_rerun:
+            self.run_depth()
+
+    def _on_depth(self, target: Document, disparity, source: str, seconds: float) -> None:
+        if target is not self.ctl.doc:
+            return  # result belongs to a document that is no longer open
         self.progress.setVisible(False)
         self.canvas.busy_text = ""
-        if self.ctl.doc is None:
-            return
         self.ctl.set_disparity(disparity, source)
         self.set_status(f"Depth estimated in {seconds:.2f}s ({source}, {disparity.shape[1]}×{disparity.shape[0]})")
         self._update_actions()
@@ -435,7 +447,7 @@ class MainWindow(QMainWindow):
         self.canvas.fit()
         doc = self.ctl.doc
         ph, pw = self.ctl.preview_image.shape[:2]
-        self.res_label.setText(f"{doc.width}×{doc.height} · preview {pw}×{ph}")
+        self.res_label.setText(f"{doc.width}Ã—{doc.height} Â· preview {pw}Ã—{ph}")
         self.render_service.drop_cache()
         self._update_actions()
 
@@ -496,9 +508,9 @@ class MainWindow(QMainWindow):
         if not stats.get("interactive"):
             self._last_full_ms = ms - stats.get("scene_ms", 0.0)
         w, h = stats.get("size", (0, 0))
-        extra = f" · scene {stats['scene_ms']:.0f} ms" if "scene_ms" in stats else ""
-        mode = " · draft" if stats.get("interactive") else ""
-        self.render_label.setText(f"Render {ms:.0f} ms ({w}×{h}{mode}){extra}")
+        extra = f" Â· scene {stats['scene_ms']:.0f} ms" if "scene_ms" in stats else ""
+        mode = " Â· draft" if stats.get("interactive") else ""
+        self.render_label.setText(f"Render {ms:.0f} ms ({w}Ã—{h}{mode}){extra}")
 
     # ================================================================== files
     def open_dialog(self) -> None:
@@ -527,7 +539,7 @@ class MainWindow(QMainWindow):
         doc = Document(image=image, image_path=path)
         doc.add_light(LightType.POINT, name="Key", x=0.28, y=0.3, z=-0.35)
         self.ctl.load_document(doc)
-        self.set_status(f"Opened {path.name} ({doc.width}×{doc.height}) in {time.perf_counter() - start:.2f}s")
+        self.set_status(f"Opened {path.name} ({doc.width}Ã—{doc.height}) in {time.perf_counter() - start:.2f}s")
         self.run_depth()
 
     def open_project(self, path: Path) -> None:
@@ -610,7 +622,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setVisible(True)
-        self.set_status(f"Exporting {path.name}…")
+        self.set_status(f"Exporting {path.name}â€¦")
         self.export_btn.setEnabled(False)
         worker.start()
 

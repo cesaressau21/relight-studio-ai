@@ -251,8 +251,24 @@ class Canvas(QWidget):
         # Lights closer to the camera (negative z) are drawn slightly larger.
         return float(np.clip(1.0 - 0.35 * light.z, 0.65, 1.5))
 
-    def _paint_gizmo(self, p: QPainter, light: Light, selected: bool) -> None:
+    def gizmo_pos(self, light: Light) -> tuple[QPointF, bool]:
+        """Widget position of a gizmo, pinned inside the canvas when the light is off-screen."""
         c = self.to_widget(light.x, light.y)
+        m = GIZMO_R + 10
+        pinned = QPointF(min(max(c.x(), m), self.width() - m), min(max(c.y(), m), self.height() - m))
+        return pinned, pinned != c
+
+    def _paint_gizmo(self, p: QPainter, light: Light, selected: bool) -> None:
+        c, off_screen = self.gizmo_pos(light)
+        if off_screen:
+            target = self.to_widget(light.x, light.y)
+            d = QPointF(target.x() - c.x(), target.y() - c.y())
+            length = max(math.hypot(d.x(), d.y()), 1e-6)
+            d = QPointF(d.x() / length, d.y() / length)
+            n = QPointF(-d.y(), d.x())
+            tip = c + d * (GIZMO_R + 9)
+            p.setPen(QPen(QColor(light.gizmo_color), 2))
+            p.drawPolyline([tip - d * 6 + n * 5, tip, tip - d * 6 - n * 5])
         id_color = QColor(light.gizmo_color)
         fill = QColor(rgb_to_hex(light.color))
         r = GIZMO_R * self._gizmo_scale(light)
@@ -358,7 +374,7 @@ class Canvas(QWidget):
             return None
         best, best_d = None, HIT_R
         for light in reversed(doc.lights):
-            c = self.to_widget(light.x, light.y)
+            c, _ = self.gizmo_pos(light)
             d = math.hypot(c.x() - pos.x(), c.y() - pos.y())
             if d <= best_d * self._gizmo_scale(light):
                 best, best_d = light, d
@@ -404,7 +420,9 @@ class Canvas(QWidget):
         light = self.light_at(pos)
         if light is not None:
             self.ctl.select(light.id)
-            self._drag_offset = self.to_widget(light.x, light.y) - pos
+            pinned, off_screen = self.gizmo_pos(light)
+            # Grabbing a pinned off-screen gizmo moves the light to the cursor.
+            self._drag_offset = QPointF(0, 0) if off_screen else pinned - pos
             self._drag = "light"
             self._drag_light = light.id
             self.ctl.interactionChanged.emit(True)

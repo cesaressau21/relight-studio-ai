@@ -131,3 +131,17 @@ def test_mvp_workflow_in_the_ui(qapp, window, tmp_path):
     data = read_project(project)
     assert data.manifest["lights"][0]["x"] == pytest.approx(0.85)
     assert src.read_bytes() == original_bytes
+
+
+@pytest.mark.skipif(len(list(Path(__file__).resolve().parents[1].glob("samples/*.webp"))) < 2,
+                    reason="needs two sample photos")
+def test_opening_a_second_photo_during_inference_gets_its_own_depth(qapp, window):
+    samples = sorted(Path(__file__).resolve().parents[1].glob("samples/*.webp"))[:2]
+    window.open_path(samples[0])
+    window.open_path(samples[1])  # while the first inference may still be running
+    ctl = window.ctl
+    assert pump(qapp, lambda: ctl.doc.disparity is not None and window._depth_worker is None)
+    assert ctl.doc.image_path == samples[1]
+    ph, pw = ctl.preview_image.shape[:2]
+    dh, dw = ctl.doc.disparity.shape
+    assert abs(dw / dh - pw / ph) < 0.03

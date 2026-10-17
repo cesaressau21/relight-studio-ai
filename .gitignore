@@ -10,3 +10,4 @@ dist/
 *.rsproj.tmp
 .codegraph/
 .atl/
+build_log.txt
