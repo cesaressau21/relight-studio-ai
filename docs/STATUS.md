@@ -50,7 +50,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app Â
 | Project save/open (`.rsproj`, versioned JSON + layers, cached depth) | Implemented |
 | GPU status, VRAM, render time, progress in the status bar | Implemented |
 | CPU fallback with warning | Implemented (`RELIGHT_DEVICE=cpu` forces it) |
-| Windows executable | PyInstaller spec provided (see README) |
+| Windows executable | Implemented: PyInstaller one-folder build (~3.2 GB with the CUDA runtime), verified launching and running depth on the GPU |
 
 ## Pending / ideas
 

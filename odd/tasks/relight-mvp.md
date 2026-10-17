@@ -23,7 +23,7 @@ Branch: feat/relight-mvp · Delivery: ask-on-risk (local repo, no remote) · Tes
 | T4 | S4, S5 | inline | done | dc454c7 · ui/canvas.py, depth_profile.py, main_window.py; native-window screenshot verified |
 | T5 | S6, S8, S9 | inline | done | dc454c7 · 8 presets, history, .rsproj, export PNG/JPEG/WebP + sRGB ICC (tests/test_io.py) |
 | T6 | S1, S10 | inline | done | dc454c7 · tests/test_integration.py: real model + offscreen UI + full-res export + project |
-| T7 | S7, S10 | inline | in progress | warm-up, off-screen gizmos, depth race fix, PyInstaller spec |
+| T7 | S7, S10 | inline | done | 7f9afcc · warm-up, off-screen gizmos, depth race fix; PyInstaller one-folder build (3.2 GB) launched, ran DAv2 on CUDA |
 
 Route rationale: one model writes sequentially; no Writer-trigger reason (no parallel disjoint units launched together).
 
