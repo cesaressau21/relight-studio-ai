@@ -7,13 +7,6 @@ import pytest
 from PySide6.QtCore import QPointF
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PySide6.QtWidgets import QApplication
-
-    return QApplication.instance() or QApplication([])
-
-
 @pytest.fixture()
 def canvas(qapp):
     from relight_studio.core.document import Document

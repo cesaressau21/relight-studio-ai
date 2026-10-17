@@ -68,7 +68,8 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(str(app_icon)) if app_icon.exists() else icons.icon("sparkle", 32))
         self.resize(1600, 980)
         self.setAcceptDrops(True)
-        self.settings = QSettings("RelightStudioAI", "RelightStudioAI")
+        # INI file under the user profile (relocatable with QSettings.setPath, e.g. in tests).
+        self.settings = QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "RelightStudioAI", "RelightStudioAI")
 
         self.device_info = select_device()
         self.ctl = EditorController()
@@ -203,12 +204,12 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.ambient_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         lay.addSpacing(6)
         label("PAINT")
-        add_tool("mask", "mask", "Relight mask brush (B)\nAlt / right-drag erases Â· [ ] size")
-        add_tool("depth", "depth", "Depth correction brush (D)\nDrag pushes away Â· Alt / right-drag pulls closer")
+        add_tool("mask", "mask", "Relight mask brush (B)\nAlt / right-drag erases · [ ] size")
+        add_tool("depth", "depth", "Depth correction brush (D)\nDrag pushes away · Alt / right-drag pulls closer")
         lay.addSpacing(6)
         label("VIEW")
         add_tool("pan", "hand", "Pan (hold Space)")
-        add_tool("zoom", "zoom", "Zoom (Z) Â· Alt-click zooms out")
+        add_tool("zoom", "zoom", "Zoom (Z) · Alt-click zooms out")
         self.fit_btn = tool_button("fit", "Fit to window (Ctrl+0)")
         self.fit_btn.clicked.connect(self.canvas_fit)
         lay.addWidget(self.fit_btn, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -365,16 +366,16 @@ class MainWindow(QMainWindow):
             self.title_label.setText("")
             return
         name = (self.ctl.project_path or doc.image_path or Path("Untitled")).name
-        mark = " â€¢" if self.ctl.dirty else ""
+        mark = " •" if self.ctl.dirty else ""
         self.title_label.setText(f"{name}{mark}")
-        self.setWindowTitle(f"{name}{mark} â€” {APP_NAME}")
+        self.setWindowTitle(f"{name}{mark} — {APP_NAME}")
 
     def _update_gpu(self) -> None:
         info = self.device_info
         usage = vram_usage()
         if usage:
             used, total = usage
-            self.gpu_label.setText(f"GPU {info.name.replace('NVIDIA GeForce ', '')} Â· {used / 2**30:.1f}/{total / 2**30:.0f} GB")
+            self.gpu_label.setText(f"GPU {info.name.replace('NVIDIA GeForce ', '')} · {used / 2**30:.1f}/{total / 2**30:.0f} GB")
         else:
             self.gpu_label.setText("CPU mode")
             self.gpu_label.setStyleSheet(f"color: {theme.ACCENT};")
@@ -389,13 +390,13 @@ class MainWindow(QMainWindow):
         worker.failed.connect(lambda m: self.set_status(m.splitlines()[0], error=True))
         self._warmup_worker = worker
         if not self.device_info.warning:
-            self.set_status("Loading depth modelâ€¦")
+            self.set_status("Loading depth model…")
         worker.start()
 
     def _on_warmup(self, _disp, _key, seconds: float) -> None:
         self._model_ready = True
         if self._depth_worker is None:
-            self.set_status(f"Depth model ready ({seconds:.1f}s) â€” {MODELS['small'].label}, {MODELS['small'].license}")
+            self.set_status(f"Depth model ready ({seconds:.1f}s) — {MODELS['small'].label}, {MODELS['small'].license}")
 
     def run_depth(self) -> None:
         doc = self.ctl.doc
@@ -447,7 +448,7 @@ class MainWindow(QMainWindow):
         self.canvas.fit()
         doc = self.ctl.doc
         ph, pw = self.ctl.preview_image.shape[:2]
-        self.res_label.setText(f"{doc.width}Ã—{doc.height} Â· preview {pw}Ã—{ph}")
+        self.res_label.setText(f"{doc.width}×{doc.height} · preview {pw}×{ph}")
         self.render_service.drop_cache()
         self._update_actions()
 
@@ -508,9 +509,9 @@ class MainWindow(QMainWindow):
         if not stats.get("interactive"):
             self._last_full_ms = ms - stats.get("scene_ms", 0.0)
         w, h = stats.get("size", (0, 0))
-        extra = f" Â· scene {stats['scene_ms']:.0f} ms" if "scene_ms" in stats else ""
-        mode = " Â· draft" if stats.get("interactive") else ""
-        self.render_label.setText(f"Render {ms:.0f} ms ({w}Ã—{h}{mode}){extra}")
+        extra = f" · scene {stats['scene_ms']:.0f} ms" if "scene_ms" in stats else ""
+        mode = " · draft" if stats.get("interactive") else ""
+        self.render_label.setText(f"Render {ms:.0f} ms ({w}×{h}{mode}){extra}")
 
     # ================================================================== files
     def open_dialog(self) -> None:
@@ -539,7 +540,7 @@ class MainWindow(QMainWindow):
         doc = Document(image=image, image_path=path)
         doc.add_light(LightType.POINT, name="Key", x=0.28, y=0.3, z=-0.35)
         self.ctl.load_document(doc)
-        self.set_status(f"Opened {path.name} ({doc.width}Ã—{doc.height}) in {time.perf_counter() - start:.2f}s")
+        self.set_status(f"Opened {path.name} ({doc.width}×{doc.height}) in {time.perf_counter() - start:.2f}s")
         self.run_depth()
 
     def open_project(self, path: Path) -> None:
@@ -622,7 +623,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setVisible(True)
-        self.set_status(f"Exporting {path.name}â€¦")
+        self.set_status(f"Exporting {path.name}…")
         self.export_btn.setEnabled(False)
         worker.start()
 

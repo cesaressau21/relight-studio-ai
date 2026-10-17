@@ -58,7 +58,8 @@ Optionally pass a photo or a `.rsproj` project as the first argument.
 
 Integration tests (real depth model, offscreen UI, full-resolution export) run when the model
 is cached and a photo exists in `samples/` (or `RELIGHT_TEST_IMAGE` points to one).
-Run only the fast unit tests with `-m "not integration"`.
+Run only the fast unit tests with `-m "not integration"`. See [docs/TESTING.md](docs/TESTING.md)
+for what each test file protects.
 
 ## Build a Windows executable
 

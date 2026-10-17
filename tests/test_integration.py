@@ -61,17 +61,6 @@ def window(qapp):
     win.close()
 
 
-@pytest.fixture(scope="session")
-def qapp():
-    from PySide6.QtWidgets import QApplication
-
-    from relight_studio.ui.theme import apply_theme
-
-    app = QApplication.instance() or QApplication([])
-    apply_theme(app)
-    return app
-
-
 def pump(qapp, condition, timeout: float = 180.0) -> bool:
     end = time.time() + timeout
     while time.time() < end:

@@ -79,10 +79,12 @@ class EditorController(QObject):
 
     def set_disparity(self, disparity: np.ndarray, source: str) -> None:
         assert self.doc is not None
+        reanalysis = self.doc.disparity is not None  # the first estimate is not a user edit
         self.doc.disparity = disparity
         self.doc.disparity_source = source
         self.disparity_version += 1
-        self.dirty = True
+        if reanalysis:
+            self.dirty = True
         self.changed.emit(frozenset({"geometry"}))
 
     # ------------------------------------------------------------------- history
