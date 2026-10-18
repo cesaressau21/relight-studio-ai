@@ -84,6 +84,7 @@ alone is several GB). Model weights are not bundled; they download on first run.
 | Light depth (Z) | `Ctrl` + wheel over the canvas, or drag the dot in **Lights → Side view** |
 | Radius / intensity | `Shift` + wheel / `Alt` + wheel |
 | Light patterns (gobos) | **Lights → Pattern**: blinds, window panes, leaves, dots or a custom image (white lets light through); size, rotation, focus blur, strength |
+| Replace the background | **Backdrop → Choose image…**, then **Match lighting to background** for a key/fill/rim rig that follows the new background's light; blur and brightness for the backdrop |
 | Light only the subject or the background | **Lights → Affects**: Everything, Subject only (S badge) or Background only (B badge) |
 | Compare | `C` toggles the before/after split (drag the divider); hold `\` to see the original |
 | Mask brush | `B`; drag paints where relighting applies, `Alt`/right-drag erases, `[` `]` size |

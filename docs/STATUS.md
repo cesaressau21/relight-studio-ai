@@ -32,6 +32,9 @@ Legend: **Implemented** = works and is covered by tests or verified in the app Â
 | Reflectance / illumination separation | Approximation | shading = depth-guided smoothed luminance; colored or hard original light is only partially removed |
 | Point / area / directional / ambient / rim lights | Implemented | area light = 5 samples for shading and for shadows (soft lateral penumbra) |
 | Kelvin, softness, diffusion, falloff, enable | Implemented | |
+| Background replacement | Implemented | subject composited on a new photo (cover fit, blur, brightness) with edge color decontamination; saved in projects and exports (`tests/test_background*.py`) |
+| Match lighting to background | Approximation | key light from the brightest region (direction + color), fill from the surroundings, rim when backlit; simple image statistics, not an HDR environment estimate |
+| Removing the original light's *color* | Pending | delighting removes brightness only, so strongly colored original light (e.g. teal/orange gels) stays in the subject's colors after a background change |
 | Light patterns (gobos) | Implemented | point/area lights project like a projector aimed at the scene center, directional lights orthographically; patterns bend over the estimated geometry; procedural blinds/window/leaves/dots plus custom images; presets *Venetian Blinds* and *Dappled Leaves* (`tests/test_gobos.py`) |
 | Light targets (everything / subject only / background only) | Implemented | weighted by the subject matte, so hair and soft edges are shared smoothly; the subject still casts shadows from background-only lights; without a separated subject the target is ignored and the panel says so (`tests/test_light_targets.py`) |
 | Diffuse + specular | Approximation | wrapped Lambert + Blinn-Phong with a single global material |

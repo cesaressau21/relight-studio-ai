@@ -16,9 +16,11 @@ Branch: feat/background-replace (from main 13a1ffc) · Delivery: ask-on-risk · 
 | T1 | S2 | inline | done | core/background.py; tests/test_background.py 13 RED→GREEN |
 | T2 | S1, S3, S4 | inline | done | engine compositing + decontaminate(); 9 engine tests RED→GREEN |
 | T3 | S1, S3, S5 | inline | done | Backdrop tab, controller, workers, projects, export; tests/test_background_editor.py 11 (10 RED→GREEN); suite 388 |
-| T4 | S1-S5 | inline | in progress | |
+| T4 | S1-S5 | inline | done | native capture: sample 2 on a procedural sunset, matched warm key at the sun, clean hair edges; docs updated |
 
 Route rationale: one writer, sequential dependent units (T2 uses T1 types, T3 uses T2).
 
 ## Log
 - L1 (2026-10-18) User: "Dale, empieza con el cambio de fondo" (after choosing suggestion 3 in the feature list).
+- L2 Verification: suite 388 passed. Native capture shows the composite and matched key at the sun's position/color.
+- L3 Known limit: delighting removes brightness only; the original light's color (teal/orange gels in sample 2) stays baked in the subject. Candidate next step: color-aware delighting.

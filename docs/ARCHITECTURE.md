@@ -55,6 +55,16 @@ shadows. `rendering/edges.py` fixes this with two layers:
 Scene → **Subject edges** selects AI matting (default), Fast or Off, and exposes the subject
 depth and band width. Display → **Subject matte** shows the result.
 
+## Background replacement
+
+`core/background.py` fits a background photo to the frame (cover + center crop) and analyses it:
+the brightest region gives the key light's position and color, the rest gives the fill, and a bright
+source in the upper middle adds a rim light. The scene keeps the fitted background in linear light;
+when **Backdrop** is enabled and a subject is separated, the renderer composites
+`relit subject × matte + background × (1 − matte)` before grading. For photos (not transparent PNGs)
+`edges.decontaminate` solves `I = αF + (1−α)B` for the subject color F along soft edges, so hair does
+not keep a fringe of the old background.
+
 ## Lighting model
 
 All lighting happens in linear RGB.
