@@ -32,8 +32,16 @@ def test_depth_model_predicts_relative_inverse_depth():
     disc = (xx - 160) ** 2 + (yy - 120) ** 2 < 60**2
     image[disc] = (200, 120, 90)
     disp = DepthEstimator.shared().predict(image)
-    assert disp.ndim == 2 and disp.dtype == np.float32
-    assert np.isfinite(disp).all() and disp.std() > 0
+    finite = np.isfinite(disp)
+    diagnosis = (
+        f"shape={disp.shape} dtype={disp.dtype} nan={int(np.isnan(disp).sum())} "
+        f"inf={int(np.isinf(disp).sum())} of {disp.size}; finite min/max/std="
+        f"{disp[finite].min() if finite.any() else 'n/a'}/{disp[finite].max() if finite.any() else 'n/a'}/"
+        f"{disp[finite].std() if finite.any() else 'n/a'}"
+    )
+    assert disp.ndim == 2 and disp.dtype == np.float32, diagnosis
+    assert finite.all(), f"non-finite depth values: {diagnosis}"
+    assert disp.std() > 0, f"flat depth output: {diagnosis}"
 
 
 @pytest.mark.skipif(real_sample() is None, reason="no sample photograph")

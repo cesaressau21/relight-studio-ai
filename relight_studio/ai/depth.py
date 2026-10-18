@@ -107,8 +107,17 @@ class DepthEstimator:
         if self.device.type == "cuda":
             with torch.autocast("cuda", dtype=torch.float16):
                 out = self._model(pixel_values=pixels).predicted_depth
+            bad = int((~torch.isfinite(out)).sum())
+            if bad:
+                # float16 can overflow on unusual inputs; float32 is slower but safe.
+                log.warning("Depth inference gave %d non-finite values in float16; recomputing in float32", bad)
+                out = self._model(pixel_values=pixels).predicted_depth
         else:
             out = self._model(pixel_values=pixels).predicted_depth
+        bad = int((~torch.isfinite(out)).sum())
+        if bad:
+            raise RuntimeError(f"Depth model returned {bad} non-finite values out of {out.numel()} "
+                               f"(input {tuple(pixels.shape)}, device {self.device})")
         return out[0].float()
 
     def predict(self, image: np.ndarray, model: str = "small", detail: str = "standard") -> np.ndarray:
