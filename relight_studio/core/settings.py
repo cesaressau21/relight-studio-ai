@@ -104,6 +104,23 @@ class Adjustments:
 
 
 @dataclass
+class BackgroundSettings:
+    """A replacement background photo placed behind the separated subject."""
+
+    enabled: bool = False
+    path: str = ""
+    blur: float = 0.0  # 0..1, depth-of-field style softening
+    brightness: float = 0.0  # EV
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "BackgroundSettings":
+        return _from_dict(cls, data)
+
+
+@dataclass
 class MaskSettings:
     enabled: bool = True
     invert: bool = False

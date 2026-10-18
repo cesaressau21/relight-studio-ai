@@ -168,6 +168,19 @@ def extend(values: torch.Tensor, valid: torch.Tensor, steps: int) -> torch.Tenso
     return fill_from(values, valid)
 
 
+def decontaminate(image_lin: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor:
+    """Estimate the subject's own color where the matte is partial (hair, soft edges).
+
+    The photo stores I = a*F + (1-a)*B. B is extended from the nearby background,
+    F is solved for, and pixels with almost no coverage take the nearby subject
+    color, so placing F on a new background leaves no fringe of the old one.
+    """
+    old_background = fill_from(image_lin, (alpha < 0.02).to(image_lin.dtype))
+    subject_fill = fill_from(image_lin, (alpha > 0.98).to(image_lin.dtype))
+    solved = ((image_lin - (1.0 - alpha) * old_background) / alpha.clamp(min=0.05)).clamp(0.0, 1.0)
+    return torch.where(alpha > 0.98, image_lin, torch.where(alpha < 0.05, subject_fill, solved))
+
+
 def layered_depth(depth01: torch.Tensor, alpha: torch.Tensor, band_px: int) -> tuple[torch.Tensor, torch.Tensor]:
     """Subject and background depth layers, each extended across the silhouette band.
 

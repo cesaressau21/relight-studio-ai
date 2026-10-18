@@ -13,13 +13,13 @@ monocular depth gives neither camera intrinsics nor metric scale.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
 
 from ..core.settings import DepthSettings
-from .edges import extend, fill_from, guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
+from .edges import decontaminate, extend, fill_from, guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
 from .filters import gaussian_blur, guided_filter, luminance, resize, srgb_to_linear
 
 
@@ -49,6 +49,18 @@ class Scene:
     # Edge pixels are shaded once per layer and mixed by the matte. None without separation.
     layers: tuple[Layer, Layer] | None = None
     depth_px: float = 1.0  # output pixels per depth-map pixel: how wide upsampling spreads a depth step
+    background_lin: torch.Tensor | None = None  # 1x3xHxW replacement background (linear RGB)
+    subject_lin: torch.Tensor | None = None  # subject colors without the old background at the edges
+    _background_cache: dict = field(default_factory=dict, repr=False)
+
+    def background_for(self, blur: float, brightness: float) -> torch.Tensor:
+        """Replacement background with blur (relative to image height) and exposure applied."""
+        assert self.background_lin is not None
+        key = (round(float(blur), 3), round(float(brightness), 3))
+        if key not in self._background_cache:
+            bg = gaussian_blur(self.background_lin, float(blur) * 0.03 * self.height) if blur > 0 else self.background_lin
+            self._background_cache = {key: bg * (2.0 ** float(brightness))}  # keep only the latest
+        return self._background_cache[key]
 
     @property
     def aspect(self) -> float:
@@ -190,6 +202,7 @@ def build_scene(
     mask: np.ndarray | None = None,
     alpha: np.ndarray | None = None,
     opacity: np.ndarray | None = None,
+    background: np.ndarray | None = None,
 ) -> Scene:
     """Build all cached maps for ``image`` (already at the target resolution).
 
@@ -202,6 +215,8 @@ def build_scene(
             when ``settings.edge_mode == "matting"``, otherwise a fast matte is estimated.
         opacity: the image's own transparency (uint8, any resolution). Transparent
             pixels are not part of the scene, and the transparency is the subject outline.
+        background: replacement background (uint8 RGB, already fitted to the image's
+            aspect ratio); composited behind the subject when enabled at render time.
     """
     h, w = image.shape[:2]
     img = _image_tensor(image, device)
@@ -263,8 +278,16 @@ def build_scene(
     ref = torch.quantile(flat, 0.97).clamp(min=1e-3)
     shading = (shading / ref).clamp(0.08, 1.5)
 
+    background_lin = subject_lin = None
+    if background is not None:
+        background_lin = srgb_to_linear(resize(_image_tensor(background, device), h, w))
+        if alpha_t is not None:
+            # Transparent PNGs already store clean subject colors; photos need edge cleanup.
+            subject_lin = image_lin if op is not None else decontaminate(image_lin, alpha_t)
+
     return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
-                 mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1))
+                 mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1),
+                 background_lin, subject_lin)
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:

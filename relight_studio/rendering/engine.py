@@ -28,7 +28,7 @@ import torch.nn.functional as F
 
 from ..core.color import kelvin_to_linear_gain, srgb_to_linear
 from ..core.lights import Light, LightTarget, LightType
-from ..core.settings import Adjustments, MaskSettings, RelightSettings
+from ..core.settings import Adjustments, BackgroundSettings, MaskSettings, RelightSettings
 from .filters import box_filter, linear_to_srgb, luminance, smoothstep, turbo
 from .gobos import transmission as gobo_transmission
 from .scene import MAX_SLOPE, Scene
@@ -44,7 +44,14 @@ class RenderParams:
     relight: RelightSettings = field(default_factory=RelightSettings)
     adjustments: Adjustments = field(default_factory=Adjustments)
     mask_settings: MaskSettings = field(default_factory=MaskSettings)
+    background: BackgroundSettings = field(default_factory=BackgroundSettings)
     view: str = "result"
+
+
+def background_active(scene: Scene, params: RenderParams) -> bool:
+    """The replacement background is shown only with a separated subject to cut out."""
+    return (params.view == "result" and params.background.enabled
+            and scene.background_lin is not None and scene.alpha is not None)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -381,8 +388,9 @@ class Renderer:
         h, w = scene.height, scene.width
         if chunk_rows is None:
             chunk_rows = max(64, int(4_000_000 / max(w, 1)))  # bound GPU temporaries
-        out = np.empty((h, w, 3 if scene.opacity is None else 4), np.uint8)
-        if scene.opacity is not None:
+        transparent = scene.opacity is not None and not background_active(scene, params)
+        out = np.empty((h, w, 4 if transparent else 3), np.uint8)
+        if transparent:
             out[..., 3] = (scene.opacity[0, 0] * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
         # The 3x3 shadow filter and the depth-step search of patterns read rows beyond each chunk.
         halo = step_radius(scene)
@@ -419,7 +427,9 @@ class Renderer:
         shading_d = scene.shading[:, :, rows] ** rs.delighting
         if view == "shading":
             return linear_to_srgb(shading_d.expand(-1, 3, -1, -1) * 0.8).clamp(0, 1)
-        image_lin = scene.image_lin[:, :, rows]
+        replace_bg = background_active(scene, params)
+        source = scene.subject_lin if replace_bg and scene.subject_lin is not None else scene.image_lin
+        image_lin = source[:, :, rows]
         albedo = image_lin / shading_d
         if view == "albedo":
             return linear_to_srgb(albedo).clamp(0, 1)
@@ -435,6 +445,9 @@ class Renderer:
             if params.mask_settings.invert:
                 mask = 1.0 - mask
             relit = torch.lerp(image_lin, relit, mask)
+        if replace_bg:
+            background = scene.background_for(params.background.blur, params.background.brightness)
+            relit = torch.lerp(background[:, :, rows], relit, scene.alpha[:, :, rows])
         return apply_adjustments(relit, params.adjustments, rs.highlight_rolloff)
 
     def lighting(self, scene: Scene, reg: _Region, params: RenderParams) -> tuple[torch.Tensor, torch.Tensor]:

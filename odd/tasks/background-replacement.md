@@ -14,8 +14,8 @@ Branch: feat/background-replace (from main 13a1ffc) · Delivery: ask-on-risk · 
 | ID | Specs | Route | Status | Evidence |
 |----|-------|-------|--------|----------|
 | T1 | S2 | inline | done | core/background.py; tests/test_background.py 13 RED→GREEN |
-| T2 | S1, S3, S4 | inline | in progress | |
-| T3 | S1, S3, S5 | inline | pending | |
+| T2 | S1, S3, S4 | inline | done | engine compositing + decontaminate(); 9 engine tests RED→GREEN |
+| T3 | S1, S3, S5 | inline | in progress | |
 | T4 | S1-S5 | inline | pending | |
 
 Route rationale: one writer, sequential dependent units (T2 uses T1 types, T3 uses T2).
