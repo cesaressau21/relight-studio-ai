@@ -30,6 +30,7 @@ from ..core.color import kelvin_to_linear_gain, srgb_to_linear
 from ..core.lights import Light, LightTarget, LightType
 from ..core.settings import Adjustments, MaskSettings, RelightSettings
 from .filters import box_filter, linear_to_srgb, luminance, smoothstep, turbo
+from .gobos import transmission as gobo_transmission
 from .scene import Scene
 
 VIEW_MODES = ("result", "original", "depth", "normals", "subject", "albedo", "shading", "lighting", "occlusion")
@@ -189,7 +190,20 @@ def _point_like(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
         else:
             vis = _shadow(scene, reg, to_light, rs.shadow_steps, light.softness)
     spec = _specular(n, l, rs, light, rough_boost=0.3 * light.size if is_area else 0.0) * _attenuation(dist, light)
+    diffuse, spec = _apply_gobo(scene, reg, light, diffuse, spec)
     return diffuse, spec, vis
+
+
+def _scene_center(scene: Scene) -> tuple[float, float, float]:
+    return scene.aspect * 0.5, 0.5, 0.5 * scene.relief
+
+
+def _apply_gobo(scene: Scene, reg: _Region, light: Light, diffuse: torch.Tensor, spec: torch.Tensor):
+    """Multiply a light's contribution by its projected pattern, if any."""
+    pattern = gobo_transmission(reg.pos, light, _light_position(scene, light), _scene_center(scene))
+    if pattern is None:
+        return diffuse, spec
+    return diffuse * pattern, spec * pattern
 
 
 def _directional(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
@@ -206,6 +220,7 @@ def _directional(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
         ray = l * (MAX_SHADOW_REACH / xy) * torch.ones_like(reg.noise)
         vis = _shadow(scene, reg, ray, rs.shadow_steps, light.softness)
     spec = _specular(n, l, rs, light)
+    diffuse, spec = _apply_gobo(scene, reg, light, diffuse, spec)
     return diffuse, spec, vis
 
 

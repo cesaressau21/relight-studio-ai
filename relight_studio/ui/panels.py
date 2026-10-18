@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
@@ -9,6 +10,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -26,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from ..ai.depth import DETAIL_SIZES, MODELS
 from ..core.color import rgb_to_hex
-from ..core.lights import Light, LightTarget, LightType
+from ..core.lights import GOBO_PATTERNS, Light, LightTarget, LightType
 from ..core.presets import Preset
 from ..rendering.engine import VIEW_MODES
 from . import icons, theme
@@ -82,6 +84,13 @@ class LightsPanel(QWidget):
         ("attenuation", "Falloff", 0.0, 3.0, 2, "", "Distance attenuation exponent (1 ≈ inverse square)"),
         ("size", "Area size", 0.0, 0.6, 2, "", "Soft area light extent (image heights)"),
         ("specular", "Specular", 0.0, 3.0, 2, "", "Per-light highlight strength"),
+    ]
+
+    GOBO_FIELDS: list[tuple[str, str, float, float, int, str, str]] = [
+        ("gobo_size", "Pattern size", 0.02, 0.6, 3, "", "Size of one pattern repeat"),
+        ("gobo_rotation", "Rotation", -180.0, 180.0, 0, "°", "Pattern rotation"),
+        ("gobo_softness", "Focus blur", 0.0, 1.0, 2, "", "0 = sharp pattern, 1 = very soft"),
+        ("gobo_strength", "Pattern strength", 0.0, 1.0, 2, "", "How much of the light the pattern blocks"),
     ]
 
     def __init__(self, controller: EditorController) -> None:
@@ -176,6 +185,19 @@ class LightsPanel(QWidget):
             row.valueChanged.connect(lambda v, k=key: self._set(**{k: v}))
             self.rows[key] = row
             form.addWidget(row)
+
+        form.addWidget(section_title("Pattern"))
+        self.gobo_combo = QComboBox()
+        for key, label in GOBO_PATTERNS.items():
+            self.gobo_combo.addItem(label, key)
+        self.gobo_combo.setToolTip("Project a pattern through the light (gobo): blinds, window panes, leaves…")
+        self.gobo_combo.currentIndexChanged.connect(lambda _: self._gobo_chosen())
+        form.addWidget(labeled("Gobo", self.gobo_combo))
+        for key, label, lo, hi, dec, suffix, tip in self.GOBO_FIELDS:
+            row = SliderRow(label, lo, hi, 0.0, dec, suffix, tip)
+            row.valueChanged.connect(lambda v, k=key: self._set(**{k: v}))
+            self.rows[key] = row
+            form.addWidget(row)
         lay.addWidget(self.form)
         lay.addWidget(hint("Drag gizmos on the photo. Ctrl+wheel: depth · Shift+wheel: radius · "
                            "Alt+wheel: intensity · arrows: nudge · H: hide gizmos"))
@@ -185,6 +207,24 @@ class LightsPanel(QWidget):
         controller.selectionChanged.connect(lambda _: self.refresh())
         controller.documentLoaded.connect(self.refresh)
         self.refresh()
+
+    def _gobo_chosen(self) -> None:
+        light = self.ctl.selected_light()
+        if light is None:
+            return
+        gobo = self.gobo_combo.currentData()
+        if gobo == "custom":
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Choose a pattern image (white lets light through)",
+                str(Path(light.gobo_image).parent) if light.gobo_image else "",
+                "Images (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff)")
+            if not path:
+                with QSignalBlocker(self.gobo_combo):  # cancelled: keep the current pattern
+                    self.gobo_combo.setCurrentIndex(self.gobo_combo.findData(light.gobo))
+                return
+            self.ctl.update_light(light.id, gobo="custom", gobo_image=path)
+        else:
+            self._set(gobo=gobo)
 
     def set_subject_available(self, available: bool) -> None:
         """Called after each render: whether the scene has a subject/background separation."""
@@ -267,6 +307,12 @@ class LightsPanel(QWidget):
             self.rows["radius"].setEnabled(light.type in (LightType.POINT, LightType.AREA, LightType.RIM))
             self.rows["attenuation"].setEnabled(light.type in (LightType.POINT, LightType.AREA, LightType.RIM))
             self.shadows.setEnabled(light.type in (LightType.POINT, LightType.AREA, LightType.DIRECTIONAL))
+            patterned = light.type in (LightType.POINT, LightType.AREA, LightType.DIRECTIONAL)
+            with QSignalBlocker(self.gobo_combo):
+                self.gobo_combo.setCurrentIndex(self.gobo_combo.findData(light.gobo))
+            self.gobo_combo.setEnabled(patterned)
+            for key, *_ in self.GOBO_FIELDS:
+                self.rows[key].setEnabled(patterned and light.gobo != "none")
         self.profile.update()
 
 

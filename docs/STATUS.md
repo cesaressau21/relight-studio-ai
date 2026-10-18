@@ -32,6 +32,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app Â
 | Reflectance / illumination separation | Approximation | shading = depth-guided smoothed luminance; colored or hard original light is only partially removed |
 | Point / area / directional / ambient / rim lights | Implemented | area light = 5 samples for shading and for shadows (soft lateral penumbra) |
 | Kelvin, softness, diffusion, falloff, enable | Implemented | |
+| Light patterns (gobos) | Implemented | point/area lights project like a projector aimed at the scene center, directional lights orthographically; patterns bend over the estimated geometry; procedural blinds/window/leaves/dots plus custom images; presets *Venetian Blinds* and *Dappled Leaves* (`tests/test_gobos.py`) |
 | Light targets (everything / subject only / background only) | Implemented | weighted by the subject matte, so hair and soft edges are shared smoothly; the subject still casts shadows from background-only lights; without a separated subject the target is ignored and the panel says so (`tests/test_light_targets.py`) |
 | Diffuse + specular | Approximation | wrapped Lambert + Blinn-Phong with a single global material |
 | Shadows | Approximation | screen-space ray marching through the depth map: objects are treated as infinitely thick height fields, nothing off-screen casts shadows, rays leaving the frame are unoccluded |

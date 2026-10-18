@@ -47,6 +47,17 @@ class LightType(str, Enum):
         }[self]
 
 
+# Light patterns ("gobos"): what a light projects through. "custom" uses ``gobo_image``.
+GOBO_PATTERNS: dict[str, str] = {
+    "none": "None",
+    "blinds": "Venetian blinds",
+    "window": "Window panes",
+    "leaves": "Leaves (dappled)",
+    "dots": "Perforated dots",
+    "custom": "Custom image…",
+}
+
+
 class LightTarget(str, Enum):
     """What a light illuminates, using the scene's subject/background separation."""
 
@@ -80,9 +91,17 @@ class Light:
     specular: float = 1.0
     shadows: bool = True
     target: LightTarget = LightTarget.ALL
+    gobo: str = "none"  # key of GOBO_PATTERNS
+    gobo_image: str = ""  # grayscale image for the "custom" pattern (white = light passes)
+    gobo_size: float = 0.12  # pattern period (projected angle for point lights, image heights for directional)
+    gobo_rotation: float = 0.0  # degrees
+    gobo_softness: float = 0.15  # 0 = sharp, 1 = very out of focus
+    gobo_strength: float = 1.0  # 0 = pattern has no effect
 
     def __post_init__(self) -> None:
         self.type = LightType(self.type)
+        if self.gobo not in GOBO_PATTERNS:
+            self.gobo = "none"
         try:
             self.target = LightTarget(self.target)
         except ValueError:

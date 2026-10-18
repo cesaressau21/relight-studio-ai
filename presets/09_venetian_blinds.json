@@ -1,0 +1,56 @@
+{
+  "name": "Venetian Blinds",
+  "order": 9,
+  "description": "Warm late sun through blinds: diagonal light stripes across subject and wall.",
+  "swatch": [
+    "#ffb35c",
+    "#3a1e10",
+    "#ffd9a0"
+  ],
+  "lights": [
+    {
+      "type": "directional",
+      "name": "Sun through blinds",
+      "x": 0.05,
+      "y": 0.1,
+      "z": -0.2,
+      "intensity": 1.3,
+      "softness": 0.2,
+      "diffusion": 0.05,
+      "kelvin": 3600,
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "gobo": "blinds",
+      "gobo_size": 0.07,
+      "gobo_rotation": 35,
+      "gobo_softness": 0.12,
+      "gobo_strength": 0.95
+    },
+    {
+      "type": "ambient",
+      "name": "Room fill",
+      "intensity": 0.12,
+      "kelvin": 6000,
+      "color": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "relight": {
+    "original_light": 0.18,
+    "delighting": 0.7,
+    "ambient": 0.0,
+    "specular": 0.2,
+    "roughness": 0.5,
+    "shadow_strength": 0.85
+  },
+  "adjustments": {
+    "contrast": 0.2,
+    "temperature": 0.1
+  }
+}
