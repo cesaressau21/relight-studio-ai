@@ -195,3 +195,28 @@ def test_subject_in_front_of_a_sloped_wall_is_detected(device):
     depth = torch.tensor(np.where(disc, 0.05 + relief, wall), dtype=torch.float32, device=device)[None, None]
     threshold, separable = subject_threshold(depth)
     assert separable and 0.3 < threshold < 0.6
+
+
+def test_light_pattern_does_not_draw_a_line_along_soft_silhouettes(data, device):
+    """A soft matte mixes subject and background; so must the projected pattern.
+
+    Edge pixels have a depth between both layers. Projecting the pattern at that
+    in-between depth sweeps through several stripes within 1-2 px and draws a
+    thin dark/bright line along the outline.
+    """
+    image, disp, truth = data
+    alpha = cv2.GaussianBlur(truth.astype(np.float32), (0, 0), 1.2)
+    scene = build_scene(image, disp, DepthSettings(edge_mode="matting"), device,
+                        alpha=(alpha * 255 + 0.5).astype(np.uint8))
+    light = new_light(1, LightType.DIRECTIONAL, x=0.05, y=0.1, z=-0.2, intensity=1.3, shadows=False,
+                      gobo="blinds", gobo_size=0.07, gobo_rotation=35, gobo_softness=0.12, gobo_strength=0.95)
+    params = RenderParams(lights=[light], relight=RelightSettings(original_light=0.0, specular=0.0), view="lighting")
+    lit = Renderer().render(scene, params).astype(np.float32).mean(axis=2)
+    edge = (alpha > 0.05) & (alpha < 0.95)
+    # Each edge pixel must lie between the light received by nearby pure subject and pure background.
+    kernel = np.ones((9, 9), np.uint8)
+    lo = cv2.erode(np.where(edge, 255.0, lit).astype(np.float32), kernel)
+    hi = cv2.dilate(np.where(edge, 0.0, lit).astype(np.float32), kernel)
+    outside = np.maximum(lo - lit, lit - hi)[edge]
+    assert outside.max() < 25, f"silhouette pixels {outside.max():.0f} levels outside their neighbors' lighting"
+

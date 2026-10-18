@@ -81,6 +81,9 @@ class _Region:
     pos: torch.Tensor  # 1x3xhxW surface points
     normals: torch.Tensor
     noise: torch.Tensor  # 1x1xhxW blue-ish noise in [0, 1) for ray jitter
+    # (points, normals) of the subject and background layers, mixed by ``alpha``.
+    layers: tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]] | None = None
+    alpha: torch.Tensor | None = None
 
 
 def _region(scene: Scene, y0: int, y1: int) -> _Region:
@@ -88,7 +91,8 @@ def _region(scene: Scene, y0: int, y1: int) -> _Region:
     ys = (torch.arange(y0, y1, device=dev, dtype=torch.float32) + 0.5) / h
     xs = (torch.arange(scene.width, device=dev, dtype=torch.float32) + 0.5) / h
     gy, gx = torch.meshgrid(ys, xs, indexing="ij")
-    pos = torch.cat([gx[None, None], gy[None, None], scene.z[:, :, y0:y1]], dim=1)
+    xy = torch.cat([gx[None, None], gy[None, None]], dim=1)
+    pos = torch.cat([xy, scene.z[:, :, y0:y1]], dim=1)
     # Interleaved gradient noise: deterministic, no temporal flicker.
     py, px = torch.meshgrid(
         torch.arange(y0, y1, device=dev, dtype=torch.float32),
@@ -96,7 +100,29 @@ def _region(scene: Scene, y0: int, y1: int) -> _Region:
         indexing="ij",
     )
     noise = torch.frac(52.9829189 * torch.frac(0.06711056 * px + 0.00583715 * py))[None, None]
-    return _Region(y0, y1, pos, scene.normals[:, :, y0:y1], noise)
+    reg = _Region(y0, y1, pos, scene.normals[:, :, y0:y1], noise)
+    if scene.layers is not None and scene.alpha is not None:
+        reg.layers = tuple(  # type: ignore[assignment]
+            (torch.cat([xy, layer.z[:, :, y0:y1]], dim=1), layer.normals[:, :, y0:y1]) for layer in scene.layers
+        )
+        reg.alpha = scene.alpha[:, :, y0:y1]
+    return reg
+
+
+def _per_layer(reg: _Region, shade: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]]):
+    """``shade(points, normals)`` of the surface, mixing subject and background by the matte.
+
+    Silhouette pixels blend both layers, so their composited depth and normal lie
+    in between. Lighting is not linear in either: shading that in-between surface
+    draws a thin line along the outline (a projected pattern sweeps through several
+    stripes across the depth jump; a blended normal can face the light when neither
+    layer does). Each layer is shaded on its own and the results are mixed, like
+    the pixel's color.
+    """
+    if reg.layers is None or reg.alpha is None:
+        return shade(reg.pos, reg.normals)
+    front, back = shade(*reg.layers[0]), shade(*reg.layers[1])
+    return tuple(torch.lerp(b, f, reg.alpha) for f, b in zip(front, back))
 
 
 # --------------------------------------------------------------------------- shadows
@@ -160,24 +186,27 @@ def _specular(n: torch.Tensor, l: torch.Tensor, rs: RelightSettings, light: Ligh
 
 def _point_like(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
     lp = _vec(_light_position(scene, light), reg.pos)
-    n = reg.normals
     is_area = light.type is LightType.AREA
     if is_area:
         s = max(light.size, 0.0)
         offsets = [(0, 0), (s, 0), (-s, 0), (0, s), (0, -s)]
     else:
         offsets = [(0, 0)]
-    diffuse = torch.zeros_like(reg.noise)
-    for ox, oy in offsets:
-        to_light = lp + _vec([ox, oy, 0.0], reg.pos) - reg.pos
-        dist = to_light.norm(dim=1, keepdim=True).clamp(min=1e-6)
-        l = to_light / dist
-        diffuse = diffuse + _diffuse(_dot(n, l), light.softness, light.diffusion) * _attenuation(dist, light)
-    diffuse = diffuse / len(offsets)
 
-    to_light = lp - reg.pos
-    dist = to_light.norm(dim=1, keepdim=True).clamp(min=1e-6)
-    l = to_light / dist
+    def shade(pos: torch.Tensor, n: torch.Tensor):
+        diffuse = torch.zeros_like(reg.noise)
+        for ox, oy in offsets:
+            to_light = lp + _vec([ox, oy, 0.0], pos) - pos
+            dist = to_light.norm(dim=1, keepdim=True).clamp(min=1e-6)
+            l = to_light / dist
+            diffuse = diffuse + _diffuse(_dot(n, l), light.softness, light.diffusion) * _attenuation(dist, light)
+        diffuse = diffuse / len(offsets)
+        to_light = lp - pos
+        dist = to_light.norm(dim=1, keepdim=True).clamp(min=1e-6)
+        spec = _specular(n, to_light / dist, rs, light, rough_boost=0.3 * light.size if is_area else 0.0)
+        return _apply_gobo(scene, pos, light, diffuse, spec * _attenuation(dist, light))
+
+    diffuse, spec = _per_layer(reg, shade)
     vis = None
     if light.shadows and rs.shadow_strength > 0:
         if is_area and light.size > 0:
@@ -188,9 +217,7 @@ def _point_like(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
                 for ox, oy in offsets
             ) / len(offsets)
         else:
-            vis = _shadow(scene, reg, to_light, rs.shadow_steps, light.softness)
-    spec = _specular(n, l, rs, light, rough_boost=0.3 * light.size if is_area else 0.0) * _attenuation(dist, light)
-    diffuse, spec = _apply_gobo(scene, reg, light, diffuse, spec)
+            vis = _shadow(scene, reg, lp - reg.pos, rs.shadow_steps, light.softness)
     return diffuse, spec, vis
 
 
@@ -198,9 +225,9 @@ def _scene_center(scene: Scene) -> tuple[float, float, float]:
     return scene.aspect * 0.5, 0.5, 0.5 * scene.relief
 
 
-def _apply_gobo(scene: Scene, reg: _Region, light: Light, diffuse: torch.Tensor, spec: torch.Tensor):
-    """Multiply a light's contribution by its projected pattern, if any."""
-    pattern = gobo_transmission(reg.pos, light, _light_position(scene, light), _scene_center(scene))
+def _apply_gobo(scene: Scene, pos: torch.Tensor, light: Light, diffuse: torch.Tensor, spec: torch.Tensor):
+    """Multiply a light's contribution at surface points ``pos`` by its projected pattern, if any."""
+    pattern = gobo_transmission(pos, light, _light_position(scene, light), _scene_center(scene))
     if pattern is None:
         return diffuse, spec
     return diffuse * pattern, spec * pattern
@@ -212,31 +239,36 @@ def _directional(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
     direction = lp - center
     direction = direction / max(np.linalg.norm(direction), 1e-6)
     l = _vec(direction.tolist(), reg.pos)
-    n = reg.normals
-    diffuse = _diffuse(_dot(n, l), light.softness, light.diffusion)
+
+    def shade(pos: torch.Tensor, n: torch.Tensor):
+        diffuse = _diffuse(_dot(n, l), light.softness, light.diffusion)
+        return _apply_gobo(scene, pos, light, diffuse, _specular(n, l, rs, light))
+
+    diffuse, spec = _per_layer(reg, shade)
     vis = None
     if light.shadows and rs.shadow_strength > 0:
         xy = max(float(np.hypot(direction[0], direction[1])), 0.05)
         ray = l * (MAX_SHADOW_REACH / xy) * torch.ones_like(reg.noise)
         vis = _shadow(scene, reg, ray, rs.shadow_steps, light.softness)
-    spec = _specular(n, l, rs, light)
-    diffuse, spec = _apply_gobo(scene, reg, light, diffuse, spec)
     return diffuse, spec, vis
 
 
 def _rim(scene: Scene, reg: _Region, light: Light):
     lx, ly, lz = _light_position(scene, light)
-    n = reg.normals
-    dx = lx - reg.pos[:, 0:1]
-    dy = ly - reg.pos[:, 1:2]
-    dist_xy = torch.sqrt(dx * dx + dy * dy).clamp(min=1e-6)
-    nxy = torch.sqrt(n[:, 0:1] ** 2 + n[:, 1:2] ** 2).clamp(min=1e-6)
-    facing = ((n[:, 0:1] * dx + n[:, 1:2] * dy) / (nxy * dist_xy)).clamp(min=0.0)
-    edge = (1.0 + n[:, 2:3]).clamp(0.0, 1.0)  # 0 when facing the camera, 1 at silhouettes
-    sharpness = 1.0 + 4.0 * (1.0 - min(light.softness, 1.0))
-    behind = smoothstep(-0.05 * scene.relief, 0.1 * scene.relief, lz - reg.pos[:, 2:3])
-    rim = edge**sharpness * facing ** (1.0 - 0.7 * light.diffusion) * behind
-    return rim * _attenuation(dist_xy, light)
+
+    def shade(pos: torch.Tensor, n: torch.Tensor):
+        dx = lx - pos[:, 0:1]
+        dy = ly - pos[:, 1:2]
+        dist_xy = torch.sqrt(dx * dx + dy * dy).clamp(min=1e-6)
+        nxy = torch.sqrt(n[:, 0:1] ** 2 + n[:, 1:2] ** 2).clamp(min=1e-6)
+        facing = ((n[:, 0:1] * dx + n[:, 1:2] * dy) / (nxy * dist_xy)).clamp(min=0.0)
+        edge = (1.0 + n[:, 2:3]).clamp(0.0, 1.0)  # 0 when facing the camera, 1 at silhouettes
+        sharpness = 1.0 + 4.0 * (1.0 - min(light.softness, 1.0))
+        behind = smoothstep(-0.05 * scene.relief, 0.1 * scene.relief, lz - pos[:, 2:3])
+        rim = edge**sharpness * facing ** (1.0 - 0.7 * light.diffusion) * behind
+        return (rim * _attenuation(dist_xy, light),)
+
+    return _per_layer(reg, shade)[0]
 
 
 # --------------------------------------------------------------------------- tone & grading

@@ -19,8 +19,16 @@ import numpy as np
 import torch
 
 from ..core.settings import DepthSettings
-from .edges import fill_from, guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
+from .edges import extend, fill_from, guided_alpha, layered_depth, subject_threshold, trimap_from_depth, upsample_alpha
 from .filters import gaussian_blur, guided_filter, luminance, resize, srgb_to_linear
+
+
+@dataclass
+class Layer:
+    """One depth layer (subject or background) extended across the silhouette band."""
+
+    z: torch.Tensor  # 1x1xHxW
+    normals: torch.Tensor  # 1x3xHxW
 
 
 @dataclass
@@ -37,6 +45,9 @@ class Scene:
     mask: torch.Tensor | None  # 1x1xHxW relight mask in [0, 1]
     alpha: torch.Tensor | None = None  # 1x1xHxW subject matte (None = no subject separation)
     opacity: torch.Tensor | None = None  # 1x1xHxW transparency of the source image (None = opaque)
+    # Subject and background layers that ``z`` and ``normals`` composite with ``alpha``.
+    # Edge pixels are shaded once per layer and mixed by the matte. None without separation.
+    layers: tuple[Layer, Layer] | None = None
 
     @property
     def aspect(self) -> float:
@@ -202,6 +213,7 @@ def build_scene(
     relief = max(float(settings.relief), 1e-3)
 
     alpha_t = None
+    layers = None
     if op is not None:
         alpha_t = op  # the file's own transparency is the exact outline
     elif settings.edge_mode in ("guided", "matting"):
@@ -216,9 +228,16 @@ def build_scene(
 
     if alpha_t is not None:
         # Two layers, each free of the silhouette depth jump, composited by the matte.
-        depth_fg, depth_bg = layered_depth(depth, alpha_t, edge_band_px(settings, h))
+        band = edge_band_px(settings, h)
+        depth_fg, depth_bg = layered_depth(depth, alpha_t, band)
         depth = alpha_t * depth_fg + (1.0 - alpha_t) * depth_bg
-        n = alpha_t * _smoothed_normals(depth_fg, relief, s) + (1.0 - alpha_t) * _smoothed_normals(depth_bg, relief, s)
+        # Past the opaque subject its depth is only a continuation whose normals can face
+        # anywhere (even the light). Edge pixels show the subject's rim: carry its normals out.
+        n_fg = extend(_smoothed_normals(depth_fg, relief, s), (alpha_t > 0.98).to(depth.dtype), 6 * band)
+        n_fg = n_fg / n_fg.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        n_bg = _smoothed_normals(depth_bg, relief, s)
+        layers = (Layer(depth_fg * relief, n_fg), Layer(depth_bg * relief, n_bg))
+        n = alpha_t * n_fg + (1.0 - alpha_t) * n_bg
         normals = n / n.norm(dim=1, keepdim=True).clamp(min=1e-8)
     else:
         # Snap the (low-res) depth edges onto image edges: joint guided upsampling.
@@ -244,7 +263,7 @@ def build_scene(
     shading = (shading / ref).clamp(0.08, 1.5)
 
     return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
-                 mask_tensor(mask, h, w, device), alpha_t, op)
+                 mask_tensor(mask, h, w, device), alpha_t, op, layers)
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:
