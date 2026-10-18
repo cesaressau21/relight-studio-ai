@@ -220,3 +220,48 @@ def test_light_pattern_does_not_draw_a_line_along_soft_silhouettes(data, device)
     outside = np.maximum(lo - lit, lit - hi)[edge]
     assert outside.max() < 25, f"silhouette pixels {outside.max():.0f} levels outside their neighbors' lighting"
 
+
+
+
+
+def test_light_pattern_does_not_draw_a_line_along_depth_steps_inside_the_subject(data, device):
+    """A depth step inside an opaque subject (a scarf over the neck) gets no line either.
+
+    Upsampled monocular depth turns the step into a ramp of a few pixels. Projecting the
+    pattern at the in-between depths sweeps through several stripes within 1-2 px and
+    draws a thin bright line along the step, although the matte is 1 on both sides.
+    """
+    image, _, truth = data
+    yy, xx = np.mgrid[0:H, 0:W]
+    bulge = np.sqrt(np.clip(1 - ((xx - 150) ** 2 + (yy - 100) ** 2) / 66**2, 0, 1))
+    wide = ((xx - 150) ** 2 + (yy - 100) ** 2) < 66**2
+    step_y = 105  # the lower part of the subject (the scarf) is nearer
+    disp = np.where(wide, 0.6 + 0.2 * bulge + 0.2 * (yy >= step_y), 0.15).astype(np.float32)
+    # Network depth at half resolution with a crisp step: upsampled, a ramp of ~2 px as at ~1000 px.
+    small = cv2.resize(disp, (W // 2, H // 2), interpolation=cv2.INTER_NEAREST)
+    scene = build_scene(image, small, DepthSettings(edge_mode="matting"), device, alpha=(truth * 255).astype(np.uint8))
+
+    def linear_lighting(**gobo):
+        light = new_light(1, LightType.DIRECTIONAL, x=0.05, y=0.1, z=-0.2, intensity=1.3, shadows=False, **gobo)
+        params = RenderParams(lights=[light], relight=RelightSettings(original_light=0.0, specular=0.0),
+                              view="lighting")
+        srgb = Renderer().render(scene, params).astype(np.float32).mean(axis=2) / 255.0
+        return np.where(srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4)
+
+    plain = linear_lighting()
+    # Stripes cross the step, so on each side the pattern hardly changes across it.
+    patterned = linear_lighting(gobo="blinds", gobo_size=0.07, gobo_rotation=0, gobo_softness=0.12,
+                                gobo_strength=0.95)
+    passed = patterned / np.maximum(plain, 1e-3)  # the ramp's own shading cancels out
+    # Each pixel on the ramp must get the pattern of one side of the step, or a mix of both.
+    kernel = np.ones((1, 3), np.uint8)
+    lo = cv2.erode(passed.astype(np.float32), kernel)
+    hi = cv2.dilate(passed.astype(np.float32), kernel)
+    far_lo, far_hi, near_lo, near_hi = lo[step_y - 7], hi[step_y - 7], lo[step_y + 6], hi[step_y + 6]
+    worst = 0.0
+    for y in range(step_y - 3, step_y + 3):
+        for x in range(110, 191):
+            assert truth[y - 7 : y + 8, x].all() and plain[y, x] > 0.05
+            outside = max(min(far_lo[x], near_lo[x]) - passed[y, x], passed[y, x] - max(far_hi[x], near_hi[x]))
+            worst = max(worst, outside)
+    assert worst < 0.1, f"pattern on the depth step {worst:.2f} outside what either side gets"

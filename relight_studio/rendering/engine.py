@@ -31,7 +31,7 @@ from ..core.lights import Light, LightTarget, LightType
 from ..core.settings import Adjustments, MaskSettings, RelightSettings
 from .filters import box_filter, linear_to_srgb, luminance, smoothstep, turbo
 from .gobos import transmission as gobo_transmission
-from .scene import Scene
+from .scene import MAX_SLOPE, Scene
 
 VIEW_MODES = ("result", "original", "depth", "normals", "subject", "albedo", "shading", "lighting", "occlusion")
 
@@ -109,8 +109,11 @@ def _region(scene: Scene, y0: int, y1: int) -> _Region:
     return reg
 
 
-def _per_layer(reg: _Region, shade: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]]):
-    """``shade(points, normals)`` of the surface, mixing subject and background by the matte.
+def _per_layer(reg: _Region, shade: Callable[..., tuple[torch.Tensor, ...]]):
+    """``shade(points, normals, seen)`` of the surface, mixing subject and background by the matte.
+
+    ``seen`` (None = everywhere) is how much of each pixel shows that surface; elsewhere
+    the layer's depth is only a fill across the silhouette band.
 
     Silhouette pixels blend both layers, so their composited depth and normal lie
     in between. Lighting is not linear in either: shading that in-between surface
@@ -120,8 +123,8 @@ def _per_layer(reg: _Region, shade: Callable[[torch.Tensor, torch.Tensor], tuple
     the pixel's color.
     """
     if reg.layers is None or reg.alpha is None:
-        return shade(reg.pos, reg.normals)
-    front, back = shade(*reg.layers[0]), shade(*reg.layers[1])
+        return shade(reg.pos, reg.normals, None)
+    front, back = shade(*reg.layers[0], reg.alpha), shade(*reg.layers[1], 1.0 - reg.alpha)
     return tuple(torch.lerp(b, f, reg.alpha) for f, b in zip(front, back))
 
 
@@ -193,7 +196,7 @@ def _point_like(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
     else:
         offsets = [(0, 0)]
 
-    def shade(pos: torch.Tensor, n: torch.Tensor):
+    def shade(pos: torch.Tensor, n: torch.Tensor, seen: torch.Tensor | None):
         diffuse = torch.zeros_like(reg.noise)
         for ox, oy in offsets:
             to_light = lp + _vec([ox, oy, 0.0], pos) - pos
@@ -204,7 +207,7 @@ def _point_like(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
         to_light = lp - pos
         dist = to_light.norm(dim=1, keepdim=True).clamp(min=1e-6)
         spec = _specular(n, to_light / dist, rs, light, rough_boost=0.3 * light.size if is_area else 0.0)
-        return _apply_gobo(scene, pos, light, diffuse, spec * _attenuation(dist, light))
+        return _apply_gobo(scene, pos, seen, light, diffuse, spec * _attenuation(dist, light))
 
     diffuse, spec = _per_layer(reg, shade)
     vis = None
@@ -225,11 +228,52 @@ def _scene_center(scene: Scene) -> tuple[float, float, float]:
     return scene.aspect * 0.5, 0.5, 0.5 * scene.relief
 
 
-def _apply_gobo(scene: Scene, pos: torch.Tensor, light: Light, diffuse: torch.Tensor, spec: torch.Tensor):
-    """Multiply a light's contribution at surface points ``pos`` by its projected pattern, if any."""
-    pattern = gobo_transmission(pos, light, _light_position(scene, light), _scene_center(scene))
+def step_radius(scene: Scene) -> int:
+    """How far, in pixels, to look for the two sides of a depth step."""
+    return max(1, round(2.0 * scene.depth_px))  # reaches across a ramp up to two depth-map pixels wide
+
+
+def _step_sides(z: torch.Tensor, r: int, height: int) -> tuple[torch.Tensor, ...]:
+    """Depth of the near and far side of a step around each pixel, the pixel's place
+    between them (0 = near, 1 = far) and how much the pixel lies on a step ramp.
+
+    The sides are the window min and max within ``r`` pixels. A step ramp is steeper
+    than any surface normals keep (MAX_SLOPE) and narrow: the depth range across the
+    window is much less than its steepest slope would cover, unlike a steep surface.
+    """
+    pad = F.pad(z, (r, r, r, r), mode="replicate")
+    hi = F.max_pool2d(pad, 2 * r + 1, stride=1)
+    lo = -F.max_pool2d(-pad, 2 * r + 1, stride=1)
+    zx = (pad[..., r:-r, r + 1 : pad.shape[-1] - r + 1] - pad[..., r:-r, r - 1 : -r - 1]) * (height / 2.0)
+    zy = (pad[..., r + 1 : pad.shape[-2] - r + 1, r:-r] - pad[..., r - 1 : -r - 1, r:-r]) * (height / 2.0)
+    steep = smoothstep(MAX_SLOPE, 2.0 * MAX_SLOPE, torch.sqrt(zx * zx + zy * zy))
+    # A plane spans (|zx| + |zy|) x the window width; a step ramp only a fraction of it.
+    slope = F.max_pool2d(F.pad(zx.abs() + zy.abs(), (r, r, r, r), mode="replicate"), 2 * r + 1, stride=1)
+    narrow = 1.0 - smoothstep(0.4, 0.55, (hi - lo) * height / (2 * r * slope).clamp(min=1e-8))
+    place = ((z - lo) / (hi - lo).clamp(min=1e-8)).clamp(0.0, 1.0)
+    return lo, hi, place, steep * narrow
+
+
+def _apply_gobo(scene: Scene, pos: torch.Tensor, seen: torch.Tensor | None, light: Light,
+                diffuse: torch.Tensor, spec: torch.Tensor):
+    """Multiply a light's contribution at surface points ``pos`` by its projected pattern, if any.
+
+    Upsampled depth turns a step inside a layer (a scarf over the neck) into a ramp of
+    a few pixels. Projected at those in-between depths, the pattern sweeps through
+    several stripes and draws a thin line along the step. On the ramp the pattern is
+    instead taken from both sides of the step and mixed by the pixel's place between them.
+    """
+    lp, center = _light_position(scene, light), _scene_center(scene)
+    pattern = gobo_transmission(pos, light, lp, center)
     if pattern is None:
         return diffuse, spec
+    xy, z = pos[:, :2], pos[:, 2:3]
+    lo, hi, place, on_step = _step_sides(z, step_radius(scene), scene.height)
+    if seen is not None:  # where a layer is only a fill across the silhouette, the matte mix handles it
+        on_step = on_step * smoothstep(0.9, 0.98, seen)
+    sides = torch.lerp(gobo_transmission(torch.cat([xy, lo], dim=1), light, lp, center),
+                       gobo_transmission(torch.cat([xy, hi], dim=1), light, lp, center), place)
+    pattern = torch.lerp(pattern, sides, on_step)
     return diffuse * pattern, spec * pattern
 
 
@@ -240,9 +284,9 @@ def _directional(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
     direction = direction / max(np.linalg.norm(direction), 1e-6)
     l = _vec(direction.tolist(), reg.pos)
 
-    def shade(pos: torch.Tensor, n: torch.Tensor):
+    def shade(pos: torch.Tensor, n: torch.Tensor, seen: torch.Tensor | None):
         diffuse = _diffuse(_dot(n, l), light.softness, light.diffusion)
-        return _apply_gobo(scene, pos, light, diffuse, _specular(n, l, rs, light))
+        return _apply_gobo(scene, pos, seen, light, diffuse, _specular(n, l, rs, light))
 
     diffuse, spec = _per_layer(reg, shade)
     vis = None
@@ -256,7 +300,7 @@ def _directional(scene: Scene, reg: _Region, light: Light, rs: RelightSettings):
 def _rim(scene: Scene, reg: _Region, light: Light):
     lx, ly, lz = _light_position(scene, light)
 
-    def shade(pos: torch.Tensor, n: torch.Tensor):
+    def shade(pos: torch.Tensor, n: torch.Tensor, seen: torch.Tensor | None):
         dx = lx - pos[:, 0:1]
         dy = ly - pos[:, 1:2]
         dist_xy = torch.sqrt(dx * dx + dy * dy).clamp(min=1e-6)
@@ -340,7 +384,8 @@ class Renderer:
         out = np.empty((h, w, 3 if scene.opacity is None else 4), np.uint8)
         if scene.opacity is not None:
             out[..., 3] = (scene.opacity[0, 0] * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).cpu().numpy()
-        halo = 1  # the 3x3 shadow filter reads one row beyond each chunk
+        # The 3x3 shadow filter and the depth-step search of patterns read rows beyond each chunk.
+        halo = step_radius(scene)
         for y0 in range(0, h, chunk_rows):
             y1 = min(h, y0 + chunk_rows)
             ya, yb = max(0, y0 - halo), min(h, y1 + halo)

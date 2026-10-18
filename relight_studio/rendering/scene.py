@@ -48,6 +48,7 @@ class Scene:
     # Subject and background layers that ``z`` and ``normals`` composite with ``alpha``.
     # Edge pixels are shaded once per layer and mixed by the matte. None without separation.
     layers: tuple[Layer, Layer] | None = None
+    depth_px: float = 1.0  # output pixels per depth-map pixel: how wide upsampling spreads a depth step
 
     @property
     def aspect(self) -> float:
@@ -263,7 +264,7 @@ def build_scene(
     shading = (shading / ref).clamp(0.08, 1.5)
 
     return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
-                 mask_tensor(mask, h, w, device), alpha_t, op, layers)
+                 mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1))
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:

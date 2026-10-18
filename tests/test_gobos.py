@@ -107,6 +107,31 @@ def test_pattern_wraps_around_the_geometry(device, wall):
     assert (flat_stripes != sphere_stripes).mean() > 0.1  # stripes bend over the 3D shape
 
 
+
+@pytest.mark.parametrize("slope", [1.0, 4.0])
+@pytest.mark.parametrize("light_type", [LightType.POINT, LightType.DIRECTIONAL])
+def test_smooth_slopes_get_the_exact_projection(device, slope, light_type):
+    """Only narrow depth steps mix the pattern of both sides; steep smooth surfaces keep it as projected."""
+    from relight_studio.rendering.engine import _light_position, _region, _scene_center
+    from relight_studio.rendering.gobos import transmission
+
+    ramp = np.tile(np.linspace(1.0, 0.0, H, dtype=np.float32)[:, None], (1, W))  # receding floor
+    scene = build_scene(np.full((H, W, 3), 150, np.uint8), ramp,
+                        DepthSettings(edge_mode="off", relief=slope, smoothing=0.0), device)
+    light = new_light(1, light_type, x=0.2, y=0.1, z=-0.5, intensity=2.0, radius=3.0, shadows=False,
+                      specular=0.0, gobo="blinds", gobo_size=0.05, gobo_rotation=20, gobo_strength=1.0)
+    plain = Light.from_dict({**light.to_dict(), "gobo": "none"})
+    region = _region(scene, 0, H)
+    renderer = Renderer()
+    lit = renderer.lighting(scene, region, RenderParams(lights=[light]))[0][0, 1].cpu().numpy()
+    unlit = renderer.lighting(scene, region, RenderParams(lights=[plain]))[0][0, 1].cpu().numpy()
+    expected = transmission(region.pos, light, _light_position(scene, light), _scene_center(scene))[0, 0].cpu().numpy()
+    inner = (slice(10, -10), slice(10, -10))  # the depth range is clipped at the top and bottom rows
+    valid = unlit[inner] > 1e-3
+    assert valid.mean() > 0.9 and expected[inner].std() > 0.2  # lit, with stripes
+    assert np.abs(lit[inner] / np.maximum(unlit[inner], 1e-3) - expected[inner])[valid].max() < 1e-3
+
+
 def test_directional_and_area_lights_project_patterns(wall):
     assert lit(wall, type=LightType.DIRECTIONAL, gobo="window", x=0.2, y=0.2).std() > 10
     assert lit(wall, type=LightType.AREA, gobo="leaves").std() > 10
