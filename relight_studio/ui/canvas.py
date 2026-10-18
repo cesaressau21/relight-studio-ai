@@ -26,7 +26,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget
 
 from ..core.color import rgb_to_hex
-from ..core.lights import Light, LightType
+from ..core.lights import Light, LightTarget, LightType
 from . import theme
 from .controller import EditorController
 
@@ -363,6 +363,14 @@ class Canvas(QWidget):
         p.drawRoundedRect(tag, 4, 4)
         p.setPen(QColor(15, 15, 15))
         p.drawText(tag, Qt.AlignmentFlag.AlignCenter, str(light.id))
+        if light.target is not LightTarget.ALL:
+            # "S" = subject only, "B" = background only, under the id tag.
+            badge = QRectF(tag.x(), tag.bottom() + 2, 15, 13)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(18, 18, 20, 220))
+            p.drawRoundedRect(badge, 4, 4)
+            p.setPen(ring)
+            p.drawText(badge, Qt.AlignmentFlag.AlignCenter, "S" if light.target is LightTarget.SUBJECT else "B")
 
         # Depth indicator: a small bar showing z from near (top) to far (bottom).
         if light.is_positional and selected:

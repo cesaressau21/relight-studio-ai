@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from ..ai.depth import DETAIL_SIZES, MODELS
 from ..core.color import rgb_to_hex
-from ..core.lights import Light, LightType
+from ..core.lights import Light, LightTarget, LightType
 from ..core.presets import Preset
 from ..rendering.engine import VIEW_MODES
 from . import icons, theme
@@ -140,6 +140,19 @@ class LightsPanel(QWidget):
             self.type_combo.addItem(icons.icon(LIGHT_ICON[lt], 16), lt.label, lt.value)
         self.type_combo.currentIndexChanged.connect(lambda _: self._set(type=LightType(self.type_combo.currentData())))
         form.addWidget(labeled("Type", self.type_combo))
+        self.target_combo = QComboBox()
+        for target in LightTarget:
+            self.target_combo.addItem(target.label, target.value)
+        self.target_combo.setToolTip("Light only the subject (e.g. a hair light) or only the background "
+                                     "(e.g. a wall wash), using the subject/background separation.")
+        self.target_combo.currentIndexChanged.connect(
+            lambda _: self._set(target=LightTarget(self.target_combo.currentData())))
+        form.addWidget(labeled("Affects", self.target_combo))
+        self.target_hint = hint("No subject is separated in this image, so this light affects everything. "
+                                "See Scene → Subject edges.")
+        self.target_hint.setVisible(False)
+        form.addWidget(self.target_hint)
+        self._subject_available = True
 
         color_row = QWidget()
         cl = QHBoxLayout(color_row)
@@ -172,6 +185,16 @@ class LightsPanel(QWidget):
         controller.selectionChanged.connect(lambda _: self.refresh())
         controller.documentLoaded.connect(self.refresh)
         self.refresh()
+
+    def set_subject_available(self, available: bool) -> None:
+        """Called after each render: whether the scene has a subject/background separation."""
+        self._subject_available = available
+        self._update_target_hint()
+
+    def _update_target_hint(self) -> None:
+        light = self.ctl.selected_light()
+        targeted = light is not None and light.target is not LightTarget.ALL
+        self.target_hint.setVisible(targeted and not self._subject_available)
 
     def _add(self, light_type: LightType) -> None:
         self.ctl.add_light(light_type)
@@ -207,7 +230,10 @@ class LightsPanel(QWidget):
         with QSignalBlocker(self.list):
             self.list.clear()
             for light in lights:
-                item = QListWidgetItem(light_swatch(light), f"{light.name}   ·   {light.type.label}")
+                text = f"{light.name}   ·   {light.type.label}"
+                if light.target is not LightTarget.ALL:
+                    text += f"   ·   {light.target.label.replace(' only', '')}"
+                item = QListWidgetItem(light_swatch(light), text)
                 item.setData(Qt.ItemDataRole.UserRole, light.id)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked if light.enabled else Qt.CheckState.Unchecked)
@@ -221,6 +247,9 @@ class LightsPanel(QWidget):
         self.del_btn.setEnabled(light is not None)
         self.add_btn.setEnabled(doc is not None)
         if light is not None:
+            with QSignalBlocker(self.target_combo):
+                self.target_combo.setCurrentIndex(self.target_combo.findData(light.target.value))
+            self._update_target_hint()
             with QSignalBlocker(self.name), QSignalBlocker(self.type_combo), QSignalBlocker(self.enabled), \
                     QSignalBlocker(self.shadows):
                 self.name.setText(light.name)

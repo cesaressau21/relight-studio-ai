@@ -588,6 +588,7 @@ class MainWindow(QMainWindow):
         self.render_label.setText(f"Render {ms:.0f} ms ({w}×{h}{mode}){extra}")
         if "subject" in stats and not stats.get("interactive"):
             self.scene_panel.set_edge_status(stats["subject"], self.ctl.current_alpha() is not None)
+            self.lights_panel.set_subject_available(stats["subject"])
 
     # ================================================================== files
     def open_dialog(self) -> None:

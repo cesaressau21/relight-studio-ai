@@ -47,6 +47,19 @@ class LightType(str, Enum):
         }[self]
 
 
+class LightTarget(str, Enum):
+    """What a light illuminates, using the scene's subject/background separation."""
+
+    ALL = "all"
+    SUBJECT = "subject"
+    BACKGROUND = "background"
+
+    @property
+    def label(self) -> str:
+        return {LightTarget.ALL: "Everything", LightTarget.SUBJECT: "Subject only",
+                LightTarget.BACKGROUND: "Background only"}[self]
+
+
 @dataclass
 class Light:
     id: int
@@ -66,9 +79,14 @@ class Light:
     size: float = 0.2
     specular: float = 1.0
     shadows: bool = True
+    target: LightTarget = LightTarget.ALL
 
     def __post_init__(self) -> None:
         self.type = LightType(self.type)
+        try:
+            self.target = LightTarget(self.target)
+        except ValueError:
+            self.target = LightTarget.ALL
         self.color = tuple(float(c) for c in self.color)  # type: ignore[assignment]
         if not self.name:
             self.name = f"{self.type.label} {self.id}"
@@ -84,6 +102,7 @@ class Light:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["type"] = self.type.value
+        data["target"] = self.target.value
         data["color"] = list(self.color)
         return data
 

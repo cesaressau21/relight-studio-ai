@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 from ..core.color import kelvin_to_linear_gain, srgb_to_linear
-from ..core.lights import Light, LightType
+from ..core.lights import Light, LightTarget, LightType
 from ..core.settings import Adjustments, MaskSettings, RelightSettings
 from .filters import box_filter, linear_to_srgb, luminance, smoothstep, turbo
 from .scene import Scene
@@ -352,10 +352,17 @@ class Renderer:
         occlusion = 1.0 - rs.ambient_occlusion * cavity
         diffuse = _vec(srgb_to_linear(rs.ambient_color), reg.pos) * rs.ambient * occlusion
         specular = torch.zeros_like(diffuse)
+        subject = scene.alpha[:, :, reg.y0 : reg.y1] if scene.alpha is not None else None
         for light in params.lights:
             if not light.enabled or light.intensity <= 0:
                 continue
             color = _vec(light_rgb(light), reg.pos)
+            # Light targets weight the contribution by the subject matte (soft at hair and edges).
+            # Without a separated subject every light affects everything.
+            if subject is not None and light.target is LightTarget.SUBJECT:
+                color = color * subject
+            elif subject is not None and light.target is LightTarget.BACKGROUND:
+                color = color * (1.0 - subject)
             if light.type is LightType.AMBIENT:
                 diffuse = diffuse + color * occlusion
                 continue
