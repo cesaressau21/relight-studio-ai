@@ -44,7 +44,7 @@ from .canvas import Canvas
 from .controller import EditorController
 from .export_dialog import ExportDialog
 from .layout import compact_all_combos, elastic_label
-from .panels import AdjustPanel, LayersPanel, LightsPanel, PresetsPanel, ScenePanel
+from .panels import AdjustPanel, BackgroundPanel, LayersPanel, LightsPanel, PresetsPanel, ScenePanel
 from .workers import DepthWorker, ExportWorker, MatteWorker, RenderJob, RenderService, to_qimage
 
 log = logging.getLogger(__name__)
@@ -271,6 +271,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.scene_panel, "Scene")
         self.tabs.addTab(self.adjust_panel, "Adjust")
         self.tabs.addTab(self.layers_panel, "Masks")
+        self.background_panel = BackgroundPanel(self.ctl)
+        self.tabs.addTab(self.background_panel, "Backdrop")
         self.tabs.addTab(self.presets_panel, "Presets")
         lay.addWidget(self.tabs)
         return panel
@@ -563,9 +565,18 @@ class MainWindow(QMainWindow):
             alpha=self.ctl.current_alpha(),
             alpha_version=self.ctl.alpha_version,
             opacity=self.ctl.preview_opacity,
+            background=self._preview_background(),
+            background_key=doc.background.path,
             interactive=self._interactive,
         )
         self.render_service.request(job)
+
+    def _preview_background(self):
+        try:
+            return self.ctl.preview_background()
+        except Exception as exc:  # file removed or unreadable since it was chosen
+            self.set_status(f"Cannot read the background image: {exc}", error=True)
+            return None
 
     def _params(self, view: str | None = None) -> RenderParams:
         doc = self.ctl.doc
@@ -574,6 +585,7 @@ class MainWindow(QMainWindow):
             relight=copy.deepcopy(doc.relight),
             adjustments=copy.deepcopy(doc.adjustments),
             mask_settings=copy.deepcopy(doc.mask_settings),
+            background=copy.deepcopy(doc.background),
             view=view or self.ctl.view,
         )
 
@@ -589,6 +601,7 @@ class MainWindow(QMainWindow):
         if "subject" in stats and not stats.get("interactive"):
             self.scene_panel.set_edge_status(stats["subject"], self.ctl.current_alpha() is not None)
             self.lights_panel.set_subject_available(stats["subject"])
+            self.background_panel.set_status(applied=stats.get("background", False))
 
     # ================================================================== files
     def open_dialog(self) -> None:
@@ -647,8 +660,16 @@ class MainWindow(QMainWindow):
                                 "masks and depth edits were reset.")
             data.mask = data.depth_offset = data.disparity = None
         doc = build_document(data, image, image_path, opacity)
+        missing_background = ""
+        if doc.background.path:
+            try:
+                load_image_with_alpha(doc.background.path)
+            except Exception:
+                missing_background = doc.background.path
+                doc.background.path, doc.background.enabled = "", False
         self.ctl.load_document(doc, project_path=path)
-        self.set_status(f"Opened project {path.name}")
+        self.set_status(f"Opened project {path.name}" + (
+            f" — background image not found: {missing_background}" if missing_background else ""))
         wanted = f"{doc.depth.model}/{doc.depth.detail}"
         if doc.disparity is None or doc.disparity_source != wanted:
             self.run_depth()
@@ -675,6 +696,20 @@ class MainWindow(QMainWindow):
         self.set_status(f"Saved project {path}")
         return True
 
+    def _export_snapshot(self) -> Document:
+        """An independent copy of the document for the export thread."""
+        doc = self.ctl.doc
+        return Document(
+            image=doc.image, image_path=doc.image_path, relight=copy.deepcopy(doc.relight),
+            depth=copy.deepcopy(doc.depth), adjustments=copy.deepcopy(doc.adjustments),
+            mask_settings=copy.deepcopy(doc.mask_settings), background=copy.deepcopy(doc.background),
+            disparity=doc.disparity,
+            mask=None if doc.mask is None else doc.mask.copy(),
+            depth_offset=None if doc.depth_offset is None else doc.depth_offset.copy(),
+            alpha=self.ctl.current_alpha(),
+            opacity=doc.opacity,
+        )
+
     def export_image(self) -> None:
         doc = self.ctl.doc
         if doc is None or doc.disparity is None or self._export_worker is not None:
@@ -687,16 +722,7 @@ class MainWindow(QMainWindow):
             return
         path, options = dialog.target_path(), dialog.options()
         self.settings.setValue("export_dir", str(path.parent))
-        snapshot = Document(
-            image=doc.image, image_path=doc.image_path, relight=copy.deepcopy(doc.relight),
-            depth=copy.deepcopy(doc.depth), adjustments=copy.deepcopy(doc.adjustments),
-            mask_settings=copy.deepcopy(doc.mask_settings), disparity=doc.disparity,
-            mask=None if doc.mask is None else doc.mask.copy(),
-            depth_offset=None if doc.depth_offset is None else doc.depth_offset.copy(),
-            alpha=self.ctl.current_alpha(),
-            opacity=doc.opacity,
-        )
-        worker = ExportWorker(snapshot, self._params(view="result"), options, path, self)
+        worker = ExportWorker(self._export_snapshot(), self._params(view="result"), options, path, self)
         worker.progress.connect(self.progress.setValue)
         worker.done.connect(self._on_exported)
         worker.failed.connect(lambda m: (self.set_status(m, error=True), QMessageBox.critical(self, "Export failed", m)))

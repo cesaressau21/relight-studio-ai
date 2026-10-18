@@ -24,7 +24,7 @@ from ..core.document import Document
 from ..core.image_io import ExportOptions, save_image
 from ..core.settings import DepthSettings
 from ..rendering.device import select_device
-from ..rendering.engine import Renderer, RenderParams
+from ..rendering.engine import Renderer, RenderParams, background_active
 from ..rendering.scene import Scene, build_scene, mask_tensor
 
 log = logging.getLogger(__name__)
@@ -54,6 +54,8 @@ class RenderJob:
     alpha: np.ndarray | None = None  # AI subject matte (None = estimate edges in the scene builder)
     alpha_version: int = 0
     opacity: np.ndarray | None = None  # the image's own transparency (preview resolution)
+    background: np.ndarray | None = None  # replacement background fitted to the preview image
+    background_key: str = ""
     interactive: bool = False
     stats: dict = field(default_factory=dict)
 
@@ -75,6 +77,7 @@ class RenderWorker(QObject):
             job.image_key, job.disparity_version, job.depth.geometry_key(),
             job.offset_version if job.offset is not None else -1,
             job.alpha_version if job.alpha is not None else -1,
+            job.background_key if job.background is not None else "",
         )
         cached = self._scenes.get(scale)
         if cached is None or cached[0] != key:
@@ -85,7 +88,7 @@ class RenderWorker(QObject):
                                    interpolation=cv2.INTER_AREA)
             start = time.perf_counter()
             scene = build_scene(image, job.disparity, job.depth, self.device, job.offset, job.mask, job.alpha,
-                                job.opacity)
+                                job.opacity, job.background)
             job.stats["scene_ms"] = (time.perf_counter() - start) * 1000
             self._scenes[scale] = (key, scene)
             self._mask_versions[scale] = job.mask_version
@@ -115,6 +118,7 @@ class RenderWorker(QObject):
                 size=(scene.width, scene.height),
                 interactive=job.interactive,
                 subject=scene.alpha is not None,
+                background=background_active(scene, params),
             )
             self.finished.emit(to_qimage(rgb), job.stats)
         except Exception as exc:  # keep the UI alive, report the error
@@ -262,7 +266,13 @@ def render_export(
     w, h = options.target_size(doc.width, doc.height)
     image = doc.image if (w, h) == (doc.width, doc.height) else cv2.resize(doc.image, (w, h), interpolation=cv2.INTER_AREA)
     offset = doc.depth_offset if doc.mask_settings.depth_edits_enabled else None
-    scene = build_scene(image, doc.disparity, doc.depth, device, offset, doc.mask, doc.alpha, doc.opacity)
+    background = None
+    if doc.background.enabled and doc.background.path:
+        from ..core.background import fit_cover
+        from ..core.image_io import load_image
+
+        background = fit_cover(load_image(doc.background.path), w, h)
+    scene = build_scene(image, doc.disparity, doc.depth, device, offset, doc.mask, doc.alpha, doc.opacity, background)
     if progress:
         progress(0.1)
     renderer = Renderer()

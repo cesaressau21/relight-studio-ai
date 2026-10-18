@@ -18,7 +18,9 @@ from PySide6.QtCore import QObject, Signal
 from ..core.brush import BrushSettings, paint_depth, paint_mask, stroke_samples
 from ..core.document import Document, fit_size
 from ..core.history import History
-from ..core.lights import Light, LightType
+from ..core.background import analyze_background, fit_cover, suggest_lights
+from ..core.image_io import load_image
+from ..core.lights import Light, LightRig, LightType
 from ..core.presets import Preset
 from ..rendering.device import select_device
 
@@ -53,6 +55,8 @@ class EditorController(QObject):
         self.offset_version = 0
         self.disparity_version = 0
         self.alpha_version = 0
+        self._background: tuple[str, np.ndarray | None] = ("", None)
+        self._background_preview: tuple[tuple, np.ndarray | None] = ((), None)
         self._stroke: tuple[str, float, float] | None = None
 
     # ------------------------------------------------------------------ document
@@ -226,6 +230,54 @@ class EditorController(QObject):
     def update_mask_settings(self, merge_key: str | None = None, **changes: Any) -> None:
         kinds = {"mask", "geometry"} if "depth_edits_enabled" in changes else {"mask"}
         self._update_group("mask_settings", kinds, "Mask settings", merge_key, changes)
+
+    # ---------------------------------------------------------------- background
+    def background_image(self) -> np.ndarray | None:
+        """Full-resolution replacement background (cached per path), or None."""
+        path = self.doc.background.path if self.doc else ""
+        if not path:
+            return None
+        if self._background[0] != path:
+            self._background = (path, load_image(path))
+        return self._background[1]
+
+    def preview_background(self) -> np.ndarray | None:
+        """Background fitted to the preview image (cover + center crop)."""
+        if self.preview_image is None or not (self.doc and self.doc.background.path):
+            return None
+        h, w = self.preview_image.shape[:2]
+        key = (self.doc.background.path, w, h)
+        if self._background_preview[0] != key:
+            self._background_preview = (key, fit_cover(self.background_image(), w, h))
+        return self._background_preview[1]
+
+    def set_background(self, path: str) -> None:
+        """Use ``path`` as the new background (raises if the image cannot be read)."""
+        if not self.doc:
+            return
+        image = load_image(path)  # fail before touching the document
+        self._background = (path, image)
+        self._update_group("background", {"background"}, "Choose background", None,
+                           {"path": path, "enabled": True})
+
+    def clear_background(self) -> None:
+        self._update_group("background", {"background"}, "Remove background", None, {"path": "", "enabled": False})
+
+    def update_background(self, merge_key: str | None = None, **changes: Any) -> None:
+        self._update_group("background", {"background"}, "Background", merge_key, changes)
+
+    def match_lighting(self) -> None:
+        """Replace the light rig with lights that match the background's light."""
+        image = self.background_image()
+        if not self.doc or image is None:
+            return
+        lights, relight = suggest_lights(analyze_background(image))
+        self.doc.rig = LightRig(lights)
+        for key, value in relight.items():
+            setattr(self.doc.relight, key, value)
+        self.selected = lights[0].id
+        self.selectionChanged.emit(self.selected)
+        self._commit("Match lighting to background", {"lights", "relight", "selection"})
 
     def reset_adjustments(self) -> None:
         if not self.doc:

@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QToolButton,
@@ -730,3 +732,116 @@ class PresetsPanel(QWidget):
     def refresh(self) -> None:
         for card in self.cards:
             card.setEnabled(self.ctl.has_document)
+
+
+# ============================================================================ Background
+class BackgroundPanel(QWidget):
+    """Replace the photo's background and match the lighting to it."""
+
+    def __init__(self, controller: EditorController) -> None:
+        super().__init__()
+        self.ctl = controller
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        area, lay = scroll_page()
+        root.addWidget(area)
+
+        lay.addWidget(section_title("New background"))
+        lay.addWidget(hint("Place the subject on another photo. The subject outline comes from the image's "
+                           "transparency or from Scene → Subject edges."))
+        self.thumbnail = QLabel()
+        self.thumbnail.setFixedHeight(120)
+        self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail.setStyleSheet(f"background: {theme.RAISED}; border-radius: 6px; color: {theme.FAINT};")
+        lay.addWidget(self.thumbnail)
+        buttons = QHBoxLayout()
+        self.choose_btn = QPushButton("Choose image…")
+        self.choose_btn.clicked.connect(self._choose)
+        self.remove_btn = QPushButton("Remove")
+        self.remove_btn.clicked.connect(self.ctl.clear_background)
+        buttons.addWidget(self.choose_btn, 1)
+        buttons.addWidget(self.remove_btn)
+        lay.addLayout(buttons)
+        self.enabled = QCheckBox("Show new background")
+        self.enabled.toggled.connect(lambda v: self.ctl.update_background(enabled=v))
+        lay.addWidget(self.enabled)
+        self.blur = SliderRow("Blur", 0.0, 1.0, 0.0, 2, "", "Soften the background like a shallow depth of field")
+        self.blur.valueChanged.connect(lambda v: self.ctl.update_background(blur=v))
+        self.brightness = SliderRow("Brightness", -3.0, 3.0, 0.0, 2, " EV", "Background exposure")
+        self.brightness.valueChanged.connect(lambda v: self.ctl.update_background(brightness=v))
+        lay.addWidget(self.blur)
+        lay.addWidget(self.brightness)
+
+        lay.addSpacing(6)
+        lay.addWidget(divider())
+        lay.addWidget(section_title("Lighting"))
+        self.match_btn = QPushButton("Match lighting to background")
+        self.match_btn.setObjectName("Accent")
+        self.match_btn.setIcon(icons.icon("sparkle", 16))
+        self.match_btn.setToolTip("Replace the lights with a key, fill and (when backlit) rim light that follow "
+                                  "the direction and color of the background's light. Undo restores your lights.")
+        self.match_btn.clicked.connect(self.ctl.match_lighting)
+        lay.addWidget(self.match_btn)
+        lay.addWidget(hint("Matched lights only affect the subject and stay fully editable in the Lights tab."))
+        self.status = hint("")
+        lay.addWidget(self.status)
+        lay.addStretch(1)
+
+        controller.changed.connect(lambda k: self.refresh() if k & {"background"} else None)
+        controller.documentLoaded.connect(self.refresh)
+        self.refresh()
+
+    def _choose(self) -> None:
+        doc = self.ctl.doc
+        start = str(Path(doc.background.path).parent) if doc and doc.background.path else ""
+        path, _ = QFileDialog.getOpenFileName(self, "Choose a background photo", start,
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff)")
+        if not path:
+            return
+        try:
+            self.ctl.set_background(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Cannot use this image", f"{path}\n\n{exc}")
+
+    def set_status(self, applied: bool) -> None:
+        doc = self.ctl.doc
+        if doc is None or not doc.background.path:
+            self.status.setText("Choose a photo to place behind the subject.")
+        elif not doc.background.enabled:
+            self.status.setText("The new background is hidden.")
+        elif applied:
+            self.status.setText("The new background is shown behind the subject.")
+        else:
+            self.status.setText("No subject is separated in this photo, so the background cannot be placed "
+                                "behind it. See Scene → Subject edges.")
+
+    def refresh(self) -> None:
+        doc = self.ctl.doc
+        has_bg = bool(doc and doc.background.path)
+        self.choose_btn.setEnabled(doc is not None)
+        for w in (self.remove_btn, self.enabled, self.blur, self.brightness, self.match_btn):
+            w.setEnabled(has_bg)
+        if doc is not None:
+            with QSignalBlocker(self.enabled):
+                self.enabled.setChecked(doc.background.enabled)
+            self.blur.set_value(doc.background.blur)
+            self.brightness.set_value(doc.background.brightness)
+        self._update_thumbnail()
+        if not has_bg:
+            self.set_status(applied=False)
+
+    def _update_thumbnail(self) -> None:
+        image = None
+        try:
+            image = self.ctl.background_image() if self.ctl.doc else None
+        except Exception:
+            image = None
+        if image is None:
+            self.thumbnail.setPixmap(QPixmap())
+            self.thumbnail.setText("No background")
+            return
+        h, w = image.shape[:2]
+        qimg = QImage(np.ascontiguousarray(image).data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
+        self.thumbnail.setText("")
+        self.thumbnail.setPixmap(QPixmap.fromImage(qimg).scaled(
+            320, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))

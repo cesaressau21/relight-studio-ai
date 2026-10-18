@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 
 from .lights import Light, LightRig, LightType, new_light
-from .settings import Adjustments, DepthSettings, MaskSettings, RelightSettings
+from .settings import Adjustments, BackgroundSettings, DepthSettings, MaskSettings, RelightSettings
 
 EDIT_MAX_SIDE = 2048
 
@@ -36,6 +36,7 @@ class DocState:
     mask_settings: dict[str, Any]
     mask: np.ndarray | None
     depth_offset: np.ndarray | None
+    background: dict[str, Any] = field(default_factory=dict)
 
     def same_params(self, other: "DocState") -> bool:
         return (
@@ -44,6 +45,7 @@ class DocState:
             and self.depth == other.depth
             and self.adjustments == other.adjustments
             and self.mask_settings == other.mask_settings
+            and self.background == other.background
             and self.mask is other.mask
             and self.depth_offset is other.depth_offset
         )
@@ -59,6 +61,7 @@ class Document:
     depth: DepthSettings = field(default_factory=DepthSettings)
     adjustments: Adjustments = field(default_factory=Adjustments)
     mask_settings: MaskSettings = field(default_factory=MaskSettings)
+    background: BackgroundSettings = field(default_factory=BackgroundSettings)
     disparity: np.ndarray | None = None  # raw model output (relative inverse depth)
     disparity_source: str = ""  # model key + detail used for ``disparity``
     mask: np.ndarray | None = None  # edit-res uint8, 255 = relight applied
@@ -124,6 +127,7 @@ class Document:
             depth=self.depth.to_dict(),
             adjustments=self.adjustments.to_dict(),
             mask_settings=self.mask_settings.to_dict(),
+            background=self.background.to_dict(),
             mask=self.mask,
             depth_offset=self.depth_offset,
         )
@@ -134,5 +138,6 @@ class Document:
         self.depth = DepthSettings.from_dict(state.depth)
         self.adjustments = Adjustments.from_dict(state.adjustments)
         self.mask_settings = MaskSettings.from_dict(state.mask_settings)
+        self.background = BackgroundSettings.from_dict(state.background)
         self.mask = state.mask
         self.depth_offset = state.depth_offset

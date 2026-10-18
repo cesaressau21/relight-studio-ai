@@ -27,7 +27,7 @@ from PIL import Image
 
 from .document import Document
 from .lights import Light, LightRig
-from .settings import Adjustments, DepthSettings, MaskSettings, RelightSettings
+from .settings import Adjustments, BackgroundSettings, DepthSettings, MaskSettings, RelightSettings
 
 PROJECT_FORMAT = "relight-studio-project"
 PROJECT_VERSION = 1
@@ -80,6 +80,7 @@ def save_project(doc: Document, path: str | Path) -> Path:
         "depth": doc.depth.to_dict(),
         "adjustments": doc.adjustments.to_dict(),
         "mask_settings": doc.mask_settings.to_dict(),
+        "background": doc.background.to_dict(),
         "disparity_source": doc.disparity_source,
         "layers": {
             "mask": doc.mask is not None,
@@ -150,6 +151,7 @@ def build_document(data: ProjectData, image: np.ndarray, image_path: Path,
         depth=DepthSettings.from_dict(m.get("depth")),
         adjustments=Adjustments.from_dict(m.get("adjustments")),
         mask_settings=MaskSettings.from_dict(m.get("mask_settings")),
+        background=BackgroundSettings.from_dict(m.get("background")),
     )
     w, h = doc.edit_size
     if data.mask is not None and data.mask.shape == (h, w):
