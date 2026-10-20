@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Desktop photo relighting from monocular depth estimation (Depth Anything V2 + 2.5D lighting engine)"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-license = { text = "Proprietary (third-party components under their own licenses, see docs/LICENSES.md)" }
+license = { text = "MIT" }  # third-party components keep their own licenses: docs/LICENSES.md
 dependencies = [
     "PySide6>=6.8",
     "torch>=2.7",          # CUDA >= 12.8 build required for RTX 50-series (sm_120)

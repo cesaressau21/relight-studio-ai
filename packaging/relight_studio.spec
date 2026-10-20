@@ -1,5 +1,7 @@
 # PyInstaller spec for Relight Studio AI (one-folder build).
 #   .venv/Scripts/python.exe -m PyInstaller packaging/relight_studio.spec --noconfirm
+import shutil
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
@@ -33,3 +35,14 @@ exe = EXE(
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="RelightStudioAI", upx=False)
+
+# License texts next to the executable: the app's own, the third-party summary and every
+# bundled package's license files (Qt's LGPL requires them to travel with the program).
+APP = Path(DISTPATH) / "RelightStudioAI"
+shutil.copyfile(ROOT / "LICENSE", APP / "LICENSE.txt")
+shutil.copyfile(ROOT / "docs" / "LICENSES.md", APP / "LICENSES.md")
+sys.path.insert(0, str(ROOT / "packaging"))
+from collect_licenses import collect  # noqa: E402
+
+shutil.rmtree(APP / "licenses", ignore_errors=True)
+collect(APP / "licenses")

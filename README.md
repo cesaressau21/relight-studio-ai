@@ -97,3 +97,10 @@ alone is several GB). Model weights are not bundled; they download on first run.
 
 Documentation: [architecture](docs/ARCHITECTURE.md) · [feature status and limitations](docs/STATUS.md) ·
 [third-party licenses](docs/LICENSES.md).
+
+## License
+
+Relight Studio AI is released under the [MIT License](LICENSE). Third-party components keep their
+own licenses ([summary](docs/LICENSES.md)); the Windows build ships every bundled package's license
+files in `licenses/`. The optional Depth Anything V2 Base/Large models are non-commercial
+(CC-BY-NC-4.0) and are never downloaded unless selected.
