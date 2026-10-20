@@ -53,7 +53,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app �
 | Exposure, contrast, highlights, shadows, whites, blacks, saturation, white balance, gamma | Implemented |
 | Original/new light mix, ambient intensity | Implemented |
 | Relight mask (paint, erase, fill, clear, invert, overlay) | Implemented |
-| Eight presets (Studio Portrait … Moonlight) setting engine parameters | Implemented |
+| Ten presets (Studio Portrait … Dappled Leaves) setting engine parameters | Implemented |
 | Undo/redo with drag merging | Implemented |
 | Project save/open (`.rsproj`, versioned JSON + layers, cached depth) | Implemented |
 | GPU status, VRAM, render time, progress in the status bar | Implemented |
