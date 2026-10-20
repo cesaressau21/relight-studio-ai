@@ -47,9 +47,13 @@ class Preset:
         return lights
 
     def apply(self, doc: Document) -> None:
-        """Replace the light rig and apply global parameters (others reset to defaults)."""
+        """Replace the light rig and apply global parameters (others reset to defaults).
+
+        The original light's color removal describes the photo, not the look: it is kept.
+        """
         doc.rig = LightRig(self.build_lights())
         relight = RelightSettings().to_dict()
+        relight.update(light_color=doc.relight.light_color, neutral_point=doc.relight.neutral_point)
         relight.update(self.relight)
         doc.relight = RelightSettings.from_dict(relight)
         adjustments = Adjustments().to_dict()

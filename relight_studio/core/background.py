@@ -113,4 +113,5 @@ def suggest_lights(analysis: LightingAnalysis, start_id: int = 1) -> tuple[list[
                             intensity=0.1 + 0.35 * a.ambient_level, color=a.ambient_color,
                             target=LightTarget.SUBJECT))
     # Keep a little of the photo's own light for detail; the new rig does the rest.
-    return lights, {"original_light": 0.25, "ambient": 0.0}
+    # The old light's color would tint the subject against the new background: remove it.
+    return lights, {"original_light": 0.25, "ambient": 0.0, "light_color": 1.0}

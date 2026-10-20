@@ -150,7 +150,7 @@ class Canvas(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor if self._drag == "pan" else Qt.CursorShape.OpenHandCursor)
         elif self.tool in ("mask", "depth"):
             self.setCursor(Qt.CursorShape.BlankCursor)
-        elif self.tool.startswith("place:"):
+        elif self.tool.startswith("place:") or self.tool == "neutral":
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif self.tool == "zoom":
             self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -443,6 +443,10 @@ class Canvas(QWidget):
         if self.tool.startswith("place:"):
             u, v = self.to_norm(pos)
             self.ctl.add_light(LightType(self.tool.split(":", 1)[1]), x=u, y=v)
+            self.set_tool("select")
+            return
+        if self.tool == "neutral":
+            self.ctl.set_neutral_point(*self.to_norm(pos))
             self.set_tool("select")
             return
         light = self.light_at(pos)

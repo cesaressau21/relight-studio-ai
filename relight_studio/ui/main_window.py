@@ -305,6 +305,7 @@ class MainWindow(QMainWindow):
         self.redo_btn.clicked.connect(self.ctl.redo)
         self.compare_btn.toggled.connect(self._set_compare)
         self.scene_panel.reanalyzeRequested.connect(self.run_depth)
+        self.scene_panel.pickNeutralRequested.connect(self.pick_neutral)
 
         self.ctl.changed.connect(self._on_changed)
         self.ctl.historyChanged.connect(self._update_actions)
@@ -359,6 +360,10 @@ class MainWindow(QMainWindow):
 
     def set_tool(self, tool: str) -> None:
         self.canvas.set_tool(tool)
+
+    def pick_neutral(self) -> None:
+        self.set_tool("neutral")
+        self.set_status("Click a point that should be neutral gray or white (Esc cancels)")
 
     def _sync_tool_buttons(self, tool: str) -> None:
         button = self.tool_buttons.get(tool)

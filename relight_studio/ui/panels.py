@@ -357,10 +357,13 @@ class ScenePanel(QWidget):
     """Global lighting model + depth analysis controls."""
 
     reanalyzeRequested = Signal()
+    pickNeutralRequested = Signal()
 
     RELIGHT_FIELDS = [
         ("original_light", "Original light", 0.0, 1.0, 2, "", "Mix of the captured illumination that is kept", 0.75),
         ("delighting", "Delighting", 0.0, 1.0, 2, "", "How strongly the original shading is removed from the albedo estimate", 0.6),
+        ("light_color", "Light color", 0.0, 1.0, 2, "",
+         "How much of the original light's color (a teal or orange cast) is removed from the albedo", 0.0),
         ("ambient", "Ambient", 0.0, 1.5, 2, "", "Uniform fill light", 0.0),
         ("ambient_occlusion", "Occlusion", 0.0, 1.0, 2, "", "Screen-space cavity darkening of ambient light", 0.5),
         ("specular", "Specular", 0.0, 1.5, 2, "", "Global highlight strength (Blinn-Phong)", 0.2),
@@ -401,6 +404,20 @@ class ScenePanel(QWidget):
         self.relight_form = ParamForm(self.RELIGHT_FIELDS, lambda: self.ctl.doc and self.ctl.doc.relight,
                                       self.ctl.update_relight)
         lay.addWidget(self.relight_form)
+        self.pick_neutral = QPushButton("Pick neutral")
+        self.pick_neutral.setToolTip("Click a point of the photo that should be neutral gray or white "
+                                     "(a white shirt, a gray wall) to remove a cast from the whole image")
+        self.pick_neutral.clicked.connect(self.pickNeutralRequested)
+        self.clear_neutral = QPushButton("Clear")
+        self.clear_neutral.clicked.connect(self.ctl.clear_neutral_point)
+        neutral_row = QWidget()
+        row_lay = QHBoxLayout(neutral_row)
+        row_lay.setContentsMargins(0, 0, 0, 0)
+        row_lay.addWidget(self.pick_neutral, 1)
+        row_lay.addWidget(self.clear_neutral)
+        lay.addWidget(neutral_row)
+        self.neutral_hint = hint("")
+        lay.addWidget(self.neutral_hint)
         self.rolloff = QCheckBox("Highlight roll-off")
         self.rolloff.setToolTip("Compress values above white instead of clipping them")
         self.rolloff.toggled.connect(lambda v: self.ctl.update_relight(highlight_rolloff=v))
@@ -507,12 +524,19 @@ class ScenePanel(QWidget):
         self.depth_form.refresh()
         self.edge_form.refresh()
         for w in (self.ambient_color, self.rolloff, self.model, self.detail, self.reanalyze, self.invert,
-                  self.edge_mode, self.auto_threshold):
+                  self.edge_mode, self.auto_threshold, self.pick_neutral):
             w.setEnabled(doc is not None)
         with QSignalBlocker(self.view):
             self.view.setCurrentIndex(self.view.findData(self.ctl.view))
+        self.clear_neutral.setEnabled(doc is not None and doc.relight.neutral_point is not None)
         if doc is None:
             return
+        if doc.relight.neutral_point is None:
+            self.neutral_hint.setText("Light color keeps the subject's average color. "
+                                      "Pick neutral to also remove an overall cast.")
+        else:
+            x, y = doc.relight.neutral_point
+            self.neutral_hint.setText(f"Neutral point at {x:.0%}, {y:.0%} of the image.")
         self.ambient_color.set_color(doc.relight.ambient_color)
         with QSignalBlocker(self.rolloff), QSignalBlocker(self.invert), QSignalBlocker(self.model), \
                 QSignalBlocker(self.detail):

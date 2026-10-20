@@ -221,6 +221,21 @@ class EditorController(QObject):
     def update_relight(self, merge_key: str | None = None, **changes: Any) -> None:
         self._update_group("relight", {"relight"}, "Lighting settings", merge_key, changes)
 
+    def set_neutral_point(self, x: float, y: float) -> None:
+        """Mark an image point (normalized) as neutral gray; turns color removal on if it was off."""
+        if not self.doc:
+            return
+        rs = self.doc.relight
+        rs.neutral_point = (min(max(float(x), 0.0), 1.0), min(max(float(y), 0.0), 1.0))
+        if rs.light_color <= 0.0:
+            rs.light_color = 1.0
+        self._commit("Pick neutral point", {"relight"})
+
+    def clear_neutral_point(self) -> None:
+        if self.doc and self.doc.relight.neutral_point is not None:
+            self.doc.relight.neutral_point = None
+            self._commit("Clear neutral point", {"relight"})
+
     def update_depth(self, merge_key: str | None = None, **changes: Any) -> None:
         self._update_group("depth", {"depth", "geometry"}, "Depth settings", merge_key, changes)
 

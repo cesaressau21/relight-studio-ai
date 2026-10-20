@@ -14,7 +14,7 @@ Branch: feat/color-delighting (from main e0ad75e) · Delivery: ask-on-risk · Te
 | ID | Specs | Route | Status | Evidence |
 |----|-------|-------|--------|----------|
 | T1 | S2, S3 | inline | done | scene.light_tint (normal fit + slow spatial field, soft limit) + engine original_light_color; tests/test_light_color.py 10 RED→GREEN; suite 399 |
-| T2 | S4, S5 | inline | pending | |
+| T2 | S4, S5 | inline | done | Scene → Light color slider, Pick neutral/Clear, canvas `neutral` tool, match lighting sets light_color 1, presets keep it; tests/test_light_color_editor.py 8 RED→GREEN; suite 408 |
 | T3 | S1-S5 | inline | pending | |
 
 Route rationale: one writer, sequential dependent units (T2 needs T1's engine terms).
@@ -22,3 +22,4 @@ Route rationale: one writer, sequential dependent units (T2 needs T1's engine te
 ## Log
 - L1 (2026-10-19) User: "Dale, empecemos por eso" (after the proposal quoted in S1).
 - L2 Prototype on sample 2: a purely spatial blur left teal shadows (bright orange rim dominated the average); fitting log-chromaticity to the normal separates the two colored lights. Saturated tints soft-limited (x2.5) to avoid a green fringe on the neck.
+- L3 Decision: presets keep light_color and neutral_point (they describe the photo, not the look).
