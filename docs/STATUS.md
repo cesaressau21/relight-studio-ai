@@ -60,7 +60,7 @@ Legend: **Implemented** = works and is covered by tests or verified in the app �
 | Fits small screens | Implemented: window sized to the screen (maximized below 1300×760 logical), resizable side panel, scrolling tool rail, compact top bar under 1200 px, nothing clipped down to 1280×640 (`tests/test_layout.py`) |
 | CPU fallback with warning | Implemented (`RELIGHT_DEVICE=cpu` forces it) |
 | Windows executable | Implemented: PyInstaller one-folder build (~3.2 GB with the CUDA runtime), verified launching and running depth on the GPU |
-| Windows setup (lightweight installer) | Implemented: 2.2 MB Inno Setup installer, per-user, downloads uv/Python/PyTorch (cu130, cu126 or CPU by GPU) and pinned packages at install time; Repair shortcut; uninstall removes the downloads. Verified on the development PC (RTX 5070 → cu130, CUDA available, depth + matting run); not yet tried on another machine, a CPU-only PC or an older GPU (`tests/test_installer.py`) |
+| Windows setup (lightweight installer) | Implemented: 2.2 MB Inno Setup installer, per-user, downloads uv/Python/PyTorch (cu130, cu126 or CPU by GPU) and pinned packages at install time; Repair shortcut; uninstall removes the downloads. Verified on the development PC: RTX 5070 → cu130 (CUDA available, depth + matting run); forced CPU build with no package cache (86 s, ~1 GB installed) and an empty models folder (models downloaded on first launch, depth ~1 s and matting ~1.5 s on the CPU). Not yet tried on another machine or an older NVIDIA GPU (`tests/test_installer.py`) |
 
 ## Pending / ideas
 
