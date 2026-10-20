@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
-from PySide6.QtCore import QMimeData, QPoint, Qt, QUrl
+from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QMessageBox
 
@@ -143,7 +143,7 @@ def test_export_dialog_options(qapp):
     assert dialog.target_path().suffix == ".jpg" and dialog.quality.isEnabled()
     dialog.format.setCurrentIndex(dialog.format.findData("PNG"))
     assert dialog.target_path().suffix == ".png" and not dialog.quality.isEnabled()
-    dialog.size.setCurrentIndex(dialog.size.findData(2048))
+    dialog.resolution.setCurrentIndex(dialog.resolution.findData(2048))
     assert dialog.options().target_size(4000, 3000) == (2048, 1536)
     dialog.icc.setChecked(False)
     assert dialog.options().embed_srgb is False
@@ -165,7 +165,7 @@ def test_drag_and_drop_accepts_photos_and_projects(qapp, editor, tmp_path):
     for name, accepted in (("a.jpg", True), ("b.rsproj", True), ("c.txt", False)):
         mime = QMimeData()
         mime.setUrls([QUrl.fromLocalFile(str(tmp_path / name))])
-        event = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton,
+        event = QDragEnterEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton,
                                 Qt.KeyboardModifier.NoModifier)
         event.setAccepted(False)
         editor.dragEnterEvent(event)
@@ -244,3 +244,40 @@ def test_fast_and_off_edge_modes_skip_ai_matting(qapp, editor, monkeypatch):
         editor.ctl.update_depth(edge_mode=mode)
         editor.run_matte()
     assert calls == []
+
+
+# ------------------------------------------------------------------ device notice
+def test_cpu_only_computer_gets_a_notice_not_an_error(qapp, editor):
+    import torch
+
+    from relight_studio.rendering.device import DeviceInfo
+    from relight_studio.ui import theme
+
+    editor.device_info = DeviceInfo(torch.device("cpu"), "CPU", False, None, 0,
+                                    "CUDA is not available: processing runs on the CPU and will be slower.")
+    editor._report_device()
+    assert "CPU" in editor.status_label.text()
+    assert theme.DANGER not in editor.status_label.styleSheet()
+
+
+def test_broken_gpu_is_reported_as_an_error(qapp, editor):
+    import torch
+
+    from relight_studio.rendering.device import DeviceInfo
+    from relight_studio.ui import theme
+
+    editor.device_info = DeviceInfo(torch.device("cpu"), "CPU", False, None, 0,
+                                    "CUDA present but unusable (driver too old); falling back to the CPU.", problem=True)
+    editor._report_device()
+    assert theme.DANGER in editor.status_label.styleSheet()
+
+
+def test_model_downloads_do_not_flood_the_log(tmp_path, monkeypatch):
+    import logging
+
+    from relight_studio.app.main import setup_logging
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    setup_logging()
+    for name in ("httpx", "httpx2", "httpcore", "huggingface_hub"):
+        assert logging.getLogger(name).level >= logging.WARNING, name  # its own level, not the root's

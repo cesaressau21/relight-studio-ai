@@ -20,6 +20,7 @@ class DeviceInfo:
     capability: tuple[int, int] | None
     total_memory: int  # bytes, 0 on CPU
     warning: str = ""
+    problem: bool = False  # a GPU is there but unusable (not just a computer without CUDA)
 
     @property
     def label(self) -> str:
@@ -53,7 +54,7 @@ def select_device() -> DeviceInfo:
         log.exception("CUDA probe failed")
         return DeviceInfo(
             torch.device("cpu"), "CPU", False, None, 0,
-            f"CUDA present but unusable ({exc}); falling back to the CPU.",
+            f"CUDA present but unusable ({exc}); falling back to the CPU.", problem=True,
         )
 
 

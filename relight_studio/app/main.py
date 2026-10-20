@@ -23,7 +23,8 @@ def setup_logging() -> Path:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         handlers=handlers,
     )
-    for noisy in ("transformers", "huggingface_hub", "PIL", "urllib3", "filelock"):
+    # Model downloads would log every HTTP request.
+    for noisy in ("transformers", "huggingface_hub", "PIL", "urllib3", "filelock", "httpx", "httpx2", "httpcore", "httpcore2"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     return log_file
 

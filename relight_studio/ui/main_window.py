@@ -421,9 +421,13 @@ class MainWindow(QMainWindow):
             self.gpu_label.setToolTip(info.warning)
 
     # ================================================================== model
-    def _start_warmup(self) -> None:
+    def _report_device(self) -> None:
+        # Running on the CPU is expected without an NVIDIA GPU; a GPU that fails is an error.
         if self.device_info.warning:
-            self.set_status(self.device_info.warning, error=not self.device_info.cuda)
+            self.set_status(self.device_info.warning, error=self.device_info.problem)
+
+    def _start_warmup(self) -> None:
+        self._report_device()
         worker = DepthWorker(None, "small", "standard", self)
         worker.done.connect(self._on_warmup)
         worker.failed.connect(lambda m: self.set_status(m.splitlines()[0], error=True))
