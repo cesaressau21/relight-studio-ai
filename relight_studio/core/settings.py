@@ -58,6 +58,8 @@ class RelightSettings:
 
     original_light: float = 0.75  # how much of the captured illumination is kept
     delighting: float = 0.6  # strength of the albedo/shading separation
+    light_color: float = 0.0  # how much of the original light's color is removed from the albedo (0..1)
+    neutral_point: tuple[float, float] | None = None  # normalized image point that should be neutral gray
     ambient: float = 0.0
     ambient_color: RGB = (1.0, 1.0, 1.0)
     ambient_occlusion: float = 0.5

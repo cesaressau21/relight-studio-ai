@@ -54,6 +54,29 @@ def background_active(scene: Scene, params: RenderParams) -> bool:
             and scene.background_lin is not None and scene.alpha is not None)
 
 
+def original_light_color(scene: Scene, rs: RelightSettings, y0: int, y1: int) -> torch.Tensor | None:
+    """Color of the original light to divide out of the albedo for rows [y0, y1), or None.
+
+    The smooth tint map removes color changes across each layer. A neutral point adds a
+    global correction so the albedo there becomes gray. ``light_color`` blends from no
+    correction (0) to the full one (1); the result always has luminance 1.
+    """
+    strength = min(max(float(rs.light_color), 0.0), 1.0)
+    if strength <= 0.0 or scene.light_tint is None:
+        return None
+    tint = scene.light_tint[:, :, y0:y1]
+    if rs.neutral_point is not None:
+        h, w = scene.height, scene.width
+        x = min(max(int(round(rs.neutral_point[0] * (w - 1))), 0), w - 1)
+        y = min(max(int(round(rs.neutral_point[1] * (h - 1))), 0), h - 1)
+        r = max(1, round(h * 0.004))
+        patch = (slice(None), slice(None), slice(max(0, y - r), y + r + 1), slice(max(0, x - r), x + r + 1))
+        albedo_color = (scene.image_lin[patch] / scene.light_tint[patch]).mean(dim=(2, 3), keepdim=True)
+        tint = tint * (albedo_color / luminance(albedo_color)).clamp(0.05, 20.0)
+    cast = (tint / luminance(tint)).clamp(min=1e-3) ** strength
+    return cast / luminance(cast)
+
+
 # --------------------------------------------------------------------------- helpers
 def _vec(values, ref: torch.Tensor) -> torch.Tensor:
     return torch.tensor(values, dtype=ref.dtype, device=ref.device).view(1, -1, 1, 1)
@@ -425,6 +448,9 @@ class Renderer:
 
         rs = params.relight
         shading_d = scene.shading[:, :, rows] ** rs.delighting
+        cast = original_light_color(scene, rs, y0, y1)
+        if cast is not None:
+            shading_d = shading_d * cast  # the old light's color leaves the albedo with its brightness
         if view == "shading":
             return linear_to_srgb(shading_d.expand(-1, 3, -1, -1) * 0.8).clamp(0, 1)
         replace_bg = background_active(scene, params)

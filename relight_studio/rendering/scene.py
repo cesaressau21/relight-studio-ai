@@ -13,6 +13,7 @@ monocular depth gives neither camera intrinsics nor metric scale.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -51,6 +52,8 @@ class Scene:
     depth_px: float = 1.0  # output pixels per depth-map pixel: how wide upsampling spreads a depth step
     background_lin: torch.Tensor | None = None  # 1x3xHxW replacement background (linear RGB)
     subject_lin: torch.Tensor | None = None  # subject colors without the old background at the edges
+    # 1x3xHxW color of the original light relative to each layer's average color (luminance 1).
+    light_tint: torch.Tensor | None = None
     _background_cache: dict = field(default_factory=dict, repr=False)
 
     def background_for(self, blur: float, brightness: float) -> torch.Tensor:
@@ -192,6 +195,64 @@ def _smoothed_normals(depth: torch.Tensor, relief: float, s: float) -> torch.Ten
     return compute_normals(gaussian_blur(d_smooth, 1.0 + h * 0.001) * relief)
 
 
+TINT_SIGMA = 0.05  # image heights: light color changes slowly, lips, eyes and print do not
+TINT_LIMIT = math.log(2.5)  # strongest per-channel correction (soft limit)
+
+
+def light_tint(image_lin: torch.Tensor, normals: torch.Tensor, alpha: torch.Tensor | None,
+               height: int) -> torch.Tensor:
+    """Color of the original light relative to the average color of its layer.
+
+    Object color and light color cannot be told apart in a single photo. Assumptions:
+
+    * Lights of different colors reach a surface from different directions (teal from
+      the left, orange from behind), so the part of the color that follows the surface
+      orientation is light: log-chromaticity is fitted as a linear function of the normal.
+    * What remains varies slowly in space (a colored gradient on a flat wall): over ~5%
+      of the image a surface has a roughly constant color.
+
+    Each layer's average color is kept as object color. Returns 1x3xHxW with luminance 1.
+    """
+    lum = luminance(image_lin).clamp(min=1e-5)
+    log_chroma = torch.log((image_lin / lum).clamp(min=1e-3))
+    # Dark pixels have noisy color and clipped ones lost theirs.
+    usable = (lum / (lum + 0.02)) * (image_lin.amax(dim=1, keepdim=True) < 0.98).to(lum.dtype)
+    sigma = TINT_SIGMA * height
+    basis = torch.cat([torch.ones_like(lum), normals], dim=1)  # 1x4xHxW
+
+    def field(layer: torch.Tensor) -> torch.Tensor:
+        weight = layer * usable
+        step = max(1, int((weight.numel() / 200_000) ** 0.5))
+        x = basis[0, :, ::step, ::step].reshape(4, -1).T  # N x 4
+        y = log_chroma[0, :, ::step, ::step].reshape(3, -1).T  # N x 3
+        wt = weight[0, 0, ::step, ::step].reshape(-1, 1)
+        if float(wt.sum()) < 1.0:
+            return torch.ones_like(image_lin)
+        a = x.T @ (x * wt) + 1e-3 * wt.sum() * torch.eye(4, device=x.device, dtype=x.dtype)
+        coef = torch.linalg.solve(a, x.T @ (y * wt))  # 4 x 3
+        coef[0] = 0.0  # the layer's average color is object color
+        directional = torch.exp(torch.einsum("bkhw,kc->bchw", basis, coef))
+        directional = directional / ((directional * weight).sum(dim=(2, 3), keepdim=True)
+                                     / weight.sum().clamp(min=1e-6))
+        # Slow spatial changes of what the orientation does not explain.
+        rest = log_chroma - torch.log(directional)
+        total = gaussian_blur(weight, sigma)
+        mean = (rest * weight).sum(dim=(2, 3), keepdim=True) / weight.sum().clamp(min=1e-6)
+        eps = 1e-3  # far from any weight the local color falls back to the mean
+        local = (gaussian_blur(rest * weight, sigma) + eps * mean) / (total + eps)
+        return directional * torch.exp(local - mean)
+
+    if alpha is None:
+        tint = field(torch.ones_like(lum))
+    else:
+        tint = alpha * field(alpha) + (1.0 - alpha) * field(1.0 - alpha)
+    # Under a saturated light the other channels carry little signal: dividing it all out
+    # would overshoot into the complementary color. Strong tints are softly limited.
+    tint = tint.clamp(min=1e-3)
+    tint = torch.exp(TINT_LIMIT * torch.tanh(torch.log(tint / luminance(tint)) / TINT_LIMIT))
+    return tint / luminance(tint).clamp(min=1e-4)
+
+
 @torch.inference_mode()
 def build_scene(
     image: np.ndarray,
@@ -287,7 +348,7 @@ def build_scene(
 
     return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
                  mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1),
-                 background_lin, subject_lin)
+                 background_lin, subject_lin, light_tint(image_lin, normals, alpha_t, h))
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:
