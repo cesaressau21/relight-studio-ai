@@ -85,6 +85,7 @@ alone is several GB). Model weights are not bundled; they download on first run.
 | Radius / intensity | `Shift` + wheel / `Alt` + wheel |
 | Light patterns (gobos) | **Lights → Pattern**: blinds, window panes, leaves, dots or a custom image (white lets light through); size, rotation, focus blur, strength |
 | Replace the background | **Backdrop → Choose image…**, then **Match lighting to background** for a key/fill/rim rig that follows the new background's light; blur and brightness for the backdrop |
+| Remove the original light's color | **Scene → Light color** (0–1) takes a teal/orange cast out of the subject so new lights and backgrounds are not tinted by it; **Pick neutral** and click something white or gray to also remove an overall cast (**Match lighting to background** turns it on) |
 | Light only the subject or the background | **Lights → Affects**: Everything, Subject only (S badge) or Background only (B badge) |
 | Compare | `C` toggles the before/after split (drag the divider); hold `\` to see the original |
 | Mask brush | `B`; drag paints where relighting applies, `Alt`/right-drag erases, `[` `]` size |

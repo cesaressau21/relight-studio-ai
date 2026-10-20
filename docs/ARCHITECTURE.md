@@ -71,11 +71,30 @@ All lighting happens in linear RGB.
 
 ```
 S        original illumination: luminance smoothed with a depth-guided filter
-A        albedo estimate = I / S^delighting
+C        original light color (luminance 1), see below
+A        albedo estimate = I / (S^delighting * C^light_color)
 relit    = A * (original_light * S^delighting + ambient + Σ diffuse_i) + Σ specular_i
 ```
 
-With no lights and `original_light = 1` the output equals the photo exactly (tested).
+With no lights, `original_light = 1` and `light_color = 0` the output equals the photo exactly
+(tested). With `light_color` the kept original light keeps its brightness but loses its color.
+
+**Original light color** (`rendering/scene.py: light_tint`, computed on first use). Object color
+and light color cannot be told apart in one photo, so the estimate rests on assumptions, per layer
+(subject / background):
+
+1. Colored lights arrive from different directions: log-chromaticity is fitted as a linear
+   function of the normal (teal from the left, orange from behind).
+2. The rest varies slowly in space (σ = 5 % of the height); finer changes count as light only
+   along the axis the coarse light colors span, so a sharp teal spot is removed but red lips are not.
+3. Each layer's average color is object color. A user-picked **neutral point** adds one global
+   correction so the albedo there becomes gray.
+4. Corrections are softly limited (×2.5 per channel). Where a channel is almost empty (under a
+   saturated teal light skin has nearly no red) the color is unknown: the pixel keeps its
+   brightness and texture and takes the color of the well-lit surroundings.
+
+On a new background the subject's edges use the subject's own map, so the old background's light
+color does not leave a complementary fringe.
 
 * **Normals** from the gradient of a self-guided (edge-preserving) smoothed depth, with the
   slope clamped at ~68° so depth jumps between objects do not create grazing normals.
