@@ -12,7 +12,28 @@ shadows onto what is behind them.
 > hidden or outside the frame is known. Results are plausible approximations, not physically
 > accurate inverse rendering. See [docs/STATUS.md](docs/STATUS.md).
 
-## Requirements
+## Install with the setup (Windows)
+
+Download `RelightStudioAI-<version>-beta-setup.exe` (about 2 MB) from the GitHub Releases page
+and run it. No administrator rights are needed. Setup copies the application and then
+downloads its components into the installation folder, with a window showing progress:
+Python 3.12, PyTorch 2.14.1 for your GPU and the other packages (about 3 GB with an NVIDIA
+GPU, less without one), so keep the computer online. The PyTorch build follows the GPU:
+
+| GPU | PyTorch build |
+|---|---|
+| NVIDIA, compute capability 7.5 or newer (RTX 20 and later, incl. RTX 50) with driver 580+ | CUDA 13.0 (`cu130`) |
+| Older NVIDIA (GTX 9/10, Titan V) or an older driver; not RTX 50 | CUDA 12.6 (`cu126`) |
+| No NVIDIA GPU | CPU (slower) |
+
+The Start menu gets **Relight Studio AI** and **Repair Relight Studio AI** (re-runs the download,
+for example after a connection drop or a driver update). The depth and matting models (~130 MB)
+download on first launch into `%LOCALAPPDATA%\RelightStudioAI\models`. Uninstall from Windows
+settings removes the application and everything setup downloaded; models and settings stay.
+Windows SmartScreen may warn that the publisher is unknown (the setup is not code-signed): choose
+**More info → Run anyway**.
+
+## Requirements (from source)
 
 | | Tested |
 |---|---|
@@ -25,7 +46,7 @@ RTX 50-series GPUs need a PyTorch build compiled for CUDA ≥ 12.8; older `cu118
 wheels do not contain `sm_120` kernels. Without a usable CUDA device the app falls back to the
 CPU and says so in the status bar (expect seconds per frame instead of milliseconds).
 
-## Install
+## Install from source
 
 ```bash
 uv venv --python 3.12 .venv
@@ -73,6 +94,24 @@ for what each test file protects.
 
 The output is `dist/RelightStudioAI/RelightStudioAI.exe` (a folder build: the CUDA runtime
 alone is several GB). Model weights are not bundled; they download on first run.
+
+## Build the setup (lightweight installer)
+
+Needs [Inno Setup 6](https://jrsoftware.org/isinfo.php):
+
+```bash
+winget install JRSoftware.InnoSetup
+```
+
+```bash
+.venv/Scripts/python.exe packaging/build_installer.py
+```
+
+The output is `dist/installer/RelightStudioAI-<version>-beta-setup.exe`. It holds the source,
+presets, assets and licenses; `packaging/installer/install.ps1` downloads a pinned uv
+(SHA-256 checked), Python, the PyTorch build for the GPU and the exact packages in
+`packaging/installer/requirements-lock.txt`. When the development environment's packages change,
+update the lock (`tests/test_installer.py` fails until they match).
 
 ## Using the editor
 
