@@ -54,6 +54,7 @@ class Scene:
     subject_lin: torch.Tensor | None = None  # subject colors without the old background at the edges
     _background_cache: dict = field(default_factory=dict, repr=False)
     _tints: tuple | None = field(default=None, repr=False)
+    gloss: torch.Tensor | None = None  # 1x1xHxW how strongly highlights show: see gloss_map
 
     def tints(self) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Original light color maps (photo, subject alone), computed on first use: see light_tint."""
@@ -303,6 +304,29 @@ def _channel_trust(log_chroma: torch.Tensor, reference: torch.Tensor) -> torch.T
     return t * t * (3.0 - 2.0 * t)
 
 
+GLOSS_DARK = (0.1, 0.6)  # albedo relative to the subject's lighter materials: no highlight .. full
+
+
+def gloss_map(image_lin: torch.Tensor, shading: torch.Tensor, alpha: torch.Tensor | None) -> torch.Tensor:
+    """How strongly each pixel shows a specular highlight (1 = fully).
+
+    Normals come from the depth map, which is smooth where the real surface is fibrous:
+    on hair a highlight computed from them is a wide, even band, and white over a dark
+    material it reads as gray paint. Real hair breaks it into thin strand highlights the
+    depth map cannot resolve. Highlights therefore fade on materials much darker than the
+    subject's lighter materials (75th percentile: hair can cover half a portrait), and stay
+    on skin and lighter materials. A photo that is dark all over keeps its highlights.
+    """
+    albedo = luminance(image_lin) / shading
+    inside = alpha > 0.5 if alpha is not None and bool((alpha > 0.5).any()) else torch.ones_like(albedo, dtype=torch.bool)
+    values = albedo[inside]
+    if values.numel() > 1_000_000:
+        values = values[:: values.numel() // 1_000_000 + 1]
+    typical = torch.quantile(values, 0.75).clamp(min=1e-4)
+    t = ((albedo / typical - GLOSS_DARK[0]) / (GLOSS_DARK[1] - GLOSS_DARK[0])).clamp(0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
 @torch.inference_mode()
 def build_scene(
     image: np.ndarray,
@@ -396,9 +420,11 @@ def build_scene(
             # Transparent PNGs already store clean subject colors; photos need edge cleanup.
             subject_lin = image_lin if op is not None else decontaminate(image_lin, alpha_t)
 
-    return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
-                 mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1),
-                 background_lin, subject_lin)
+    scene = Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
+                  mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1),
+                  background_lin, subject_lin)
+    scene.gloss = gloss_map(image_lin, shading, alpha_t)
+    return scene
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:

@@ -100,7 +100,9 @@ color does not leave a complementary fringe.
   slope clamped at ~68° so depth jumps between objects do not create grazing normals.
 * **Diffuse**: wrapped Lambert (softness) blended toward half-Lambert (diffusion), times
   `(1 + (d/radius)^2)^-falloff` with a smooth cut-off at 4 × radius.
-* **Specular**: normalized Blinn-Phong, orthographic view vector.
+* **Specular**: normalized Blinn-Phong, orthographic view vector, weighted by a gloss map
+  (`scene.gloss_map`) that fades highlights on materials far darker than the subject's 75th-percentile
+  albedo: on hair the smooth depth normals would give a wide gray band instead of strand highlights.
 * **Shadows**: per pixel, a ray toward the light is marched through the depth map in screen
   space (24 jittered steps by default, max reach 0.6 image heights). A sample is occluded when
   the depth map is in front of the ray; penumbra widens with distance and softness.

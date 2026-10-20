@@ -467,6 +467,8 @@ class Renderer:
 
         reg = _region(scene, y0, y1)
         diffuse, specular = self.lighting(scene, reg, params)
+        if scene.gloss is not None:
+            specular = specular * scene.gloss[:, :, rows]
         if view == "lighting":
             return linear_to_srgb((diffuse + specular) * 0.5).clamp(0, 1)
 
