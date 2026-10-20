@@ -48,16 +48,16 @@ class ExportDialog(QDialog):
         self.quality.setSuffix(" %")
         form.addRow("Quality", self.quality)
 
-        self.size = QComboBox()
+        self.resolution = QComboBox()
         long_side = max(width, height)
         options = [("Original", None)]
         for target in (4096, 3840, 2560, 2048, 1920, 1600, 1080):
             if target < long_side:
                 options.append((f"{target} px long side", target))
         for label, value in options:
-            self.size.addItem(label, value)
-        self.size.currentIndexChanged.connect(self._update_info)
-        form.addRow("Resolution", self.size)
+            self.resolution.addItem(label, value)
+        self.resolution.currentIndexChanged.connect(self._update_info)
+        form.addRow("Resolution", self.resolution)
 
         self.transparent = QCheckBox("Keep transparency")
         self.transparent.setChecked(True)
@@ -92,6 +92,7 @@ class ExportDialog(QDialog):
 
         self.info = QLabel()
         self.info.setObjectName("Hint")
+        self.info.setWordWrap(True)
         lay.addWidget(self.info)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         ok = buttons.addButton("Export", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -128,7 +129,7 @@ class ExportDialog(QDialog):
         return ExportOptions(
             format=self.format.currentData(),
             quality=self.quality.value(),
-            long_side=self.size.currentData(),
+            long_side=self.resolution.currentData(),
             embed_srgb=self.icc.isChecked(),
             keep_transparency=self.transparent.isChecked(),
             background=self.background.color(),

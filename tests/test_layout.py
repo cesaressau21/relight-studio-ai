@@ -104,6 +104,47 @@ def test_export_dialog_fits_a_small_screen(qapp):
     assert hint.width() <= 1000 and hint.height() <= 600
 
 
+def test_export_dialog_shows_its_whole_text(qapp):
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QLabel
+
+    from relight_studio.ui.export_dialog import ExportDialog
+
+    for alpha in (False, True):
+        dialog = ExportDialog(1500, 1025, Path("C:/photos/portrait_relit.png"), has_alpha=alpha)
+        dialog.show()
+        qapp.processEvents()
+        for label in dialog.findChildren(QLabel):
+            if label.isVisible() and label.text() and not label.wordWrap():
+                assert label.fontMetrics().horizontalAdvance(label.text()) <= label.width(), label.text()
+        assert dialog.info.height() >= dialog.info.heightForWidth(dialog.info.width())
+        dialog.close()
+
+
+def test_disabled_inputs_look_disabled(qapp):
+    from relight_studio.ui import theme
+
+    sheet = theme.STYLESHEET
+    for widget in ("QSpinBox", "QDoubleSpinBox", "QComboBox", "QLineEdit"):
+        assert f"{widget}:disabled" in sheet, widget
+
+
+def test_disabled_accent_button_does_not_look_clickable(qapp, editor):
+    from PySide6.QtGui import QColor
+
+    from relight_studio.ui import theme
+
+    button = editor.background_panel.match_btn  # disabled until a background is chosen
+    editor.tabs.setCurrentWidget(editor.background_panel)
+    qapp.processEvents()
+    assert not button.isEnabled()
+    fill = button.grab().toImage().pixelColor(6, button.height() // 2)
+    accent = QColor(theme.ACCENT)
+    distance = abs(fill.red() - accent.red()) + abs(fill.green() - accent.green()) + abs(fill.blue() - accent.blue())
+    assert distance > 150, fill.name()
+
+
 def test_layout_survives_a_full_render_at_small_size(qapp, editor):
     editor.resize(1280, 640)
     settle(qapp, editor)

@@ -116,7 +116,7 @@ def test_adjust_panel_and_reset(qapp, editor):
 
 def test_layers_panel(qapp, editor):
     panel, ctl = editor.layers_panel, editor.ctl
-    panel.size.spin.setValue(0.2)
+    panel.brush_size.spin.setValue(0.2)
     panel.hardness.spin.setValue(0.9)
     panel.flow.spin.setValue(0.3)
     panel.depth_strength.spin.setValue(0.05)

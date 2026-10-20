@@ -24,14 +24,14 @@ class DepthProfile(QWidget):
     def __init__(self, controller: EditorController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.ctl = controller
-        self.depth: np.ndarray | None = None
+        self.depth_map: np.ndarray | None = None
         self.setMinimumHeight(150)
         self.setMouseTracking(True)
         self.setToolTip("Side view: drag the light horizontally to change depth (Z), vertically for Y")
         self._dragging = False
 
     def set_depth(self, depth: np.ndarray | None) -> None:
-        self.depth = depth
+        self.depth_map = depth
         self.update()
 
     def _plot(self) -> QRectF:
@@ -71,10 +71,10 @@ class DepthProfile(QWidget):
         p.drawPolyline([QPointF(16, cy - 3), QPointF(21, cy - 6), QPointF(21, cy + 6), QPointF(16, cy + 3)])
 
         light = self.ctl.selected_light()
-        if self.depth is not None and light is not None:
-            h, w = self.depth.shape
+        if self.depth_map is not None and light is not None:
+            h, w = self.depth_map.shape
             col = int(np.clip(light.x, 0.0, 0.999) * w)
-            profile = self.depth[:, max(0, col - 1) : col + 2].mean(axis=1)
+            profile = self.depth_map[:, max(0, col - 1) : col + 2].mean(axis=1)
             path = QPainterPath()
             path.moveTo(r.right(), r.top())
             for i, d in enumerate(profile):

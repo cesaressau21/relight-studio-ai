@@ -608,13 +608,13 @@ class LayersPanel(QWidget):
         root.addWidget(area)
 
         lay.addWidget(section_title("Brush"))
-        self.size = SliderRow("Size", 0.005, 0.5, controller.brush.size, 3, "", "Radius in image heights ( [ / ] )")
+        self.brush_size = SliderRow("Size", 0.005, 0.5, controller.brush.size, 3, "", "Radius in image heights ( [ / ] )")
         self.hardness = SliderRow("Hardness", 0.0, 0.99, controller.brush.hardness, 2)
         self.flow = SliderRow("Flow", 0.05, 1.0, controller.brush.flow, 2)
-        self.size.valueChanged.connect(lambda v: setattr(self.ctl.brush, "size", v))
+        self.brush_size.valueChanged.connect(lambda v: setattr(self.ctl.brush, "size", v))
         self.hardness.valueChanged.connect(lambda v: setattr(self.ctl.brush, "hardness", v))
         self.flow.valueChanged.connect(lambda v: setattr(self.ctl.brush, "flow", v))
-        for w in (self.size, self.hardness, self.flow):
+        for w in (self.brush_size, self.hardness, self.flow):
             lay.addWidget(w)
 
         lay.addSpacing(6)
@@ -679,7 +679,7 @@ class LayersPanel(QWidget):
             self.mask_invert.setChecked(ms.invert)
             self.mask_overlay.setChecked(ms.show_overlay)
             self.depth_enabled.setChecked(ms.depth_edits_enabled)
-        self.size.set_value(self.ctl.brush.size)
+        self.brush_size.set_value(self.ctl.brush.size)
 
 
 # ============================================================================ Presets

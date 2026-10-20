@@ -51,6 +51,7 @@ QPushButton:hover {{ background: {HOVER}; }}
 QPushButton:pressed {{ background: {BORDER}; }}
 QPushButton:disabled {{ color: {FAINT}; }}
 QPushButton#Accent {{ background: {ACCENT}; border-color: {ACCENT}; color: #1a1006; font-weight: 600; }}
+QPushButton#Accent:disabled {{ background: {RAISED}; border-color: {BORDER}; color: {FAINT}; }}
 
 QTabWidget::pane {{ border: none; background: {SURFACE}; }}
 QTabBar {{ background: {SURFACE}; }}
@@ -76,6 +77,7 @@ QDoubleSpinBox, QSpinBox, QComboBox, QLineEdit {{
     background: {RAISED}; border: 1px solid {BORDER}; border-radius: 5px; padding: 2px 4px; selection-background-color: {ACCENT};
 }}
 QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus, QLineEdit:focus {{ border-color: #6b5440; }}
+QDoubleSpinBox:disabled, QSpinBox:disabled, QComboBox:disabled, QLineEdit:disabled {{ color: {FAINT}; background: {BG}; }}
 QDoubleSpinBox::up-button, QDoubleSpinBox::down-button, QSpinBox::up-button, QSpinBox::down-button {{ width: 0; }}
 QComboBox::drop-down {{ border: none; width: 16px; }}
 QComboBox QAbstractItemView {{ background: {RAISED}; border: 1px solid {BORDER}; selection-background-color: {HOVER}; }}
