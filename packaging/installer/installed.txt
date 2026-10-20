@@ -1,0 +1,2 @@
+This file marks an installed copy of Relight Studio AI: model weights are kept in
+%LOCALAPPDATA%\RelightStudioAI\models instead of next to the application.

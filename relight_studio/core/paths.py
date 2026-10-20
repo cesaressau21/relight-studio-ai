@@ -7,8 +7,16 @@ import sys
 from pathlib import Path
 
 
+INSTALLED_MARKER = "installed.txt"  # written next to presets/ by the Windows installer
+
+
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
+
+
+def is_installed() -> bool:
+    """Running from an installation (PyInstaller bundle or the installer) rather than a checkout."""
+    return is_frozen() or (resource_root() / INSTALLED_MARKER).exists()
 
 
 def resource_root() -> Path:
@@ -38,7 +46,7 @@ def models_dir() -> Path:
     override = os.environ.get("RELIGHT_MODELS_DIR")
     if override:
         path = Path(override)
-    elif is_frozen():
+    elif is_installed():
         path = user_data_dir() / "models"
     else:
         path = resource_root() / "models"
