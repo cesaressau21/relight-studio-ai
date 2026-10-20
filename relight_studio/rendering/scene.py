@@ -52,9 +52,14 @@ class Scene:
     depth_px: float = 1.0  # output pixels per depth-map pixel: how wide upsampling spreads a depth step
     background_lin: torch.Tensor | None = None  # 1x3xHxW replacement background (linear RGB)
     subject_lin: torch.Tensor | None = None  # subject colors without the old background at the edges
-    # 1x3xHxW color of the original light relative to each layer's average color (luminance 1).
-    light_tint: torch.Tensor | None = None
     _background_cache: dict = field(default_factory=dict, repr=False)
+    _tints: tuple | None = field(default=None, repr=False)
+
+    def tints(self) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Original light color maps (photo, subject alone), computed on first use: see light_tint."""
+        if self._tints is None:
+            self._tints = light_tint(self.image_lin, self.normals, self.alpha, self.height, self.subject_lin)
+        return self._tints
 
     def background_for(self, blur: float, brightness: float) -> torch.Tensor:
         """Replacement background with blur (relative to image height) and exposure applied."""
@@ -196,11 +201,15 @@ def _smoothed_normals(depth: torch.Tensor, relief: float, s: float) -> torch.Ten
 
 
 TINT_SIGMA = 0.05  # image heights: light color changes slowly, lips, eyes and print do not
+TINT_FINE_SIGMA = 0.012  # image heights: sharp light patches, along the light color axis only
+TINT_AXIS_SPREAD = 0.15  # log-chroma spread of the coarse light colors that fully trusts their axis
 TINT_LIMIT = math.log(2.5)  # strongest per-channel correction (soft limit)
+TINT_TRUST_SIGMA = 0.003  # image heights: the switch to borrowed color is smooth, not per pixel
+TINT_STARVED = (math.log(0.12), math.log(0.45))  # weakest channel / expected: color unknown .. trusted
 
 
-def light_tint(image_lin: torch.Tensor, normals: torch.Tensor, alpha: torch.Tensor | None,
-               height: int) -> torch.Tensor:
+def light_tint(image_lin: torch.Tensor, normals: torch.Tensor, alpha: torch.Tensor | None, height: int,
+               subject_lin: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor | None]:
     """Color of the original light relative to the average color of its layer.
 
     Object color and light color cannot be told apart in a single photo. Assumptions:
@@ -211,46 +220,87 @@ def light_tint(image_lin: torch.Tensor, normals: torch.Tensor, alpha: torch.Tens
     * What remains varies slowly in space (a colored gradient on a flat wall): over ~5%
       of the image a surface has a roughly constant color.
 
-    Each layer's average color is kept as object color. Returns 1x3xHxW with luminance 1.
+    Each layer's average color is kept as object color. Returns 1x3xHxW maps with
+    luminance 1: the light color of the photo (both layers mixed by the matte) and, with a
+    separated subject, the subject's alone (for edges composited on a new background,
+    computed from ``subject_lin`` when given).
     """
-    lum = luminance(image_lin).clamp(min=1e-5)
-    log_chroma = torch.log((image_lin / lum).clamp(min=1e-3))
-    # Dark pixels have noisy color and clipped ones lost theirs.
-    usable = (lum / (lum + 0.02)) * (image_lin.amax(dim=1, keepdim=True) < 0.98).to(lum.dtype)
     sigma = TINT_SIGMA * height
-    basis = torch.cat([torch.ones_like(lum), normals], dim=1)  # 1x4xHxW
+    basis = torch.cat([torch.ones_like(normals[:, :1]), normals], dim=1)  # 1x4xHxW
 
-    def field(layer: torch.Tensor) -> torch.Tensor:
-        weight = layer * usable
+    def mean_of(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+        return (x * weight).sum(dim=(2, 3), keepdim=True) / weight.sum().clamp(min=1e-6)
+
+    def field(colors: torch.Tensor, layer: torch.Tensor) -> torch.Tensor:
+        """Log light color of one layer (``layer`` = how much each pixel belongs to it)."""
+        lum = luminance(colors).clamp(min=1e-5)
+        log_chroma = torch.log((colors / lum).clamp(min=1e-3))
+        # Dark pixels have noisy color and clipped ones lost theirs.
+        weight = layer * (lum / (lum + 0.02)) * (colors.amax(dim=1, keepdim=True) < 0.98).to(lum.dtype)
         step = max(1, int((weight.numel() / 200_000) ** 0.5))
         x = basis[0, :, ::step, ::step].reshape(4, -1).T  # N x 4
         y = log_chroma[0, :, ::step, ::step].reshape(3, -1).T  # N x 3
         wt = weight[0, 0, ::step, ::step].reshape(-1, 1)
         if float(wt.sum()) < 1.0:
-            return torch.ones_like(image_lin)
+            return torch.zeros_like(colors)
         a = x.T @ (x * wt) + 1e-3 * wt.sum() * torch.eye(4, device=x.device, dtype=x.dtype)
         coef = torch.linalg.solve(a, x.T @ (y * wt))  # 4 x 3
         coef[0] = 0.0  # the layer's average color is object color
-        directional = torch.exp(torch.einsum("bkhw,kc->bchw", basis, coef))
-        directional = directional / ((directional * weight).sum(dim=(2, 3), keepdim=True)
-                                     / weight.sum().clamp(min=1e-6))
+        directional = torch.einsum("bkhw,kc->bchw", basis, coef)
+        directional = directional - mean_of(directional, weight)
         # Slow spatial changes of what the orientation does not explain.
-        rest = log_chroma - torch.log(directional)
-        total = gaussian_blur(weight, sigma)
-        mean = (rest * weight).sum(dim=(2, 3), keepdim=True) / weight.sum().clamp(min=1e-6)
-        eps = 1e-3  # far from any weight the local color falls back to the mean
-        local = (gaussian_blur(rest * weight, sigma) + eps * mean) / (total + eps)
-        return directional * torch.exp(local - mean)
+        rest = log_chroma - directional
+        mean = mean_of(rest, weight)
+
+        def local(x: torch.Tensor, s: float, w: torch.Tensor = weight, fallback: torch.Tensor = mean) -> torch.Tensor:
+            eps = 1e-3  # far from any weight the local color falls back to the layer's mean
+            return (gaussian_blur(x * w, s) + eps * fallback) / (gaussian_blur(w, s) + eps)
+
+        coarse = directional + local(rest, sigma) - mean
+        # Sharp-edged light patches (a teal spot under the eye, cut by the nose's shadow) are
+        # finer than the coarse map. Finer color changes are light only along the axis the
+        # coarse light colors span (teal <-> orange); other changes (red lips) stay albedo.
+        flat = (coarse - mean_of(coarse, weight))[0, :, ::step, ::step].reshape(3, -1)
+        values, vectors = torch.linalg.eigh((flat * wt.T) @ flat.T / wt.sum())
+        confidence = min(1.0, float(values[-1].clamp(min=0).sqrt()) / TINT_AXIS_SPREAD)
+        if confidence > 0.0:
+            axis = vectors[:, -1].view(1, 3, 1, 1)
+            residual = log_chroma - coarse
+            fine = local(residual, TINT_FINE_SIGMA * height, fallback=mean_of(residual, weight))                 - local(residual, sigma, fallback=mean_of(residual, weight))
+            coarse = coarse + confidence * (fine * axis).sum(dim=1, keepdim=True) * axis
+        # Dividing a strong tint out would amplify channels with little signal: softly limited.
+        coarse = coarse - _log_luminance(coarse)
+        coarse = TINT_LIMIT * torch.tanh(coarse / TINT_LIMIT)
+
+        # Under a saturated light one channel is nearly empty (a teal spot has almost no red):
+        # the object's color there is unknown and is taken from the well-lit surroundings.
+        # Only the pixel's color is replaced; its brightness and texture stay.
+        albedo = log_chroma - coarse
+        overall = mean_of(albedo, weight)
+        reference = local(albedo, sigma, weight * _channel_trust(log_chroma, overall), overall)
+        trust = gaussian_blur(_channel_trust(log_chroma, reference), TINT_TRUST_SIGMA * height)
+        return log_chroma - (trust * albedo + (1.0 - trust) * reference)
+
+    def to_tint(log_tint: torch.Tensor) -> torch.Tensor:
+        tint = torch.exp(log_tint)
+        return tint / luminance(tint).clamp(min=1e-6)
 
     if alpha is None:
-        tint = field(torch.ones_like(lum))
-    else:
-        tint = alpha * field(alpha) + (1.0 - alpha) * field(1.0 - alpha)
-    # Under a saturated light the other channels carry little signal: dividing it all out
-    # would overshoot into the complementary color. Strong tints are softly limited.
-    tint = tint.clamp(min=1e-3)
-    tint = torch.exp(TINT_LIMIT * torch.tanh(torch.log(tint / luminance(tint)) / TINT_LIMIT))
-    return tint / luminance(tint).clamp(min=1e-4)
+        return to_tint(field(image_lin, torch.ones_like(normals[:, :1]))), None
+    subject = field(subject_lin if subject_lin is not None else image_lin, alpha)
+    photo = subject if subject_lin is None else field(image_lin, alpha)
+    return to_tint(alpha * photo + (1.0 - alpha) * field(image_lin, 1.0 - alpha)), to_tint(subject)
+
+
+def _log_luminance(log_rgb: torch.Tensor) -> torch.Tensor:
+    return torch.log(luminance(torch.exp(log_rgb)).clamp(min=1e-6))
+
+
+def _channel_trust(log_chroma: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    """1 where every channel keeps a usable share of the expected color, 0 where one is starved."""
+    starved = (log_chroma - reference).amin(dim=1, keepdim=True)  # log of the weakest channel ratio
+    t = ((starved - TINT_STARVED[0]) / (TINT_STARVED[1] - TINT_STARVED[0])).clamp(0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
 
 
 @torch.inference_mode()
@@ -348,7 +398,7 @@ def build_scene(
 
     return Scene(h, w, relief, image_lin, shading, depth, z, normals, cavity,
                  mask_tensor(mask, h, w, device), alpha_t, op, layers, h / max(disparity.shape[0], 1),
-                 background_lin, subject_lin, light_tint(image_lin, normals, alpha_t, h))
+                 background_lin, subject_lin)
 
 
 def mask_tensor(mask: np.ndarray | None, h: int, w: int, device: torch.device) -> torch.Tensor | None:

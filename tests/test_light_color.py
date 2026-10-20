@@ -59,18 +59,34 @@ def sphere(device):
 
 
 # ------------------------------------------------------------------ invariants
-def test_full_original_light_still_reproduces_the_photo(device):
+def test_without_color_removal_full_original_light_reproduces_the_photo(device):
     rng = np.random.default_rng(1)
     image = rng.integers(0, 256, (H, W, 3), dtype=np.uint8)
     scene = build_scene(image, sphere_disparity(), DepthSettings(), device)
-    out = render(scene, original_light=1.0, light_color=1.0).astype(int)
+    out = render(scene, original_light=1.0, light_color=0.0, neutral_point=(0.5, 0.5)).astype(int)
     assert np.abs(out - image).max() <= 1
+
+
+def test_kept_original_light_loses_its_color_but_not_its_brightness(sphere):
+    inside, _ = sphere_mask()
+    photo = render(sphere, original_light=1.0)
+    neutral = render(sphere, original_light=1.0, light_color=1.0)
+    assert color_spread(neutral, inside) < 0.5 * color_spread(photo, inside)
+    lum = lambda rgb: srgb_to_linear(rgb.astype(np.float32) / 255.0)[inside].mean(axis=-1)  # noqa: E731
+    assert np.abs(lum(neutral) - lum(photo)).mean() < 0.03
 
 
 def test_zero_strength_changes_nothing(sphere):
     a = render(sphere, "albedo", light_color=0.0)
     b = render(sphere, "albedo", light_color=0.0, neutral_point=(0.5, 0.5))
     assert np.array_equal(a, b)
+
+
+def test_light_color_is_only_estimated_when_used(sphere):
+    render(sphere, light_color=0.0)
+    assert sphere._tints is None  # no cost for photos that do not use it
+    render(sphere, light_color=0.5)
+    assert sphere._tints is not None
 
 
 def test_chunked_render_matches_full_render(sphere):
