@@ -1,13 +1,13 @@
 ; Inno Setup script for Relight Studio AI (lightweight installer).
 ; Build with packaging\build_installer.py, or:
-;   ISCC.exe /DAppVersion=0.1.0 packaging\installer\relight_studio.iss
+;   ISCC.exe /DAppVersion=0.1.1 packaging\installer\relight_studio.iss
 ;
 ; The setup.exe holds only the application source (a few MB). After copying it, setup runs
 ; install.ps1, which downloads uv, Python, PyTorch (CUDA build chosen for the GPU) and the
 ; other packages into the installation folder.
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #ifndef AppVersionLabel
   #define AppVersionLabel AppVersion + "-beta"

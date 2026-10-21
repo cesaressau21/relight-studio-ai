@@ -40,3 +40,15 @@ def test_qt_lgpl_texts_are_shipped(tmp_path):
 def test_build_spec_copies_the_licenses():
     spec = (ROOT / "packaging" / "relight_studio.spec").read_text(encoding="utf-8")
     assert '"LICENSE"' in spec and "LICENSES.md" in spec and "collect(" in spec
+
+
+def test_version_is_the_same_everywhere():
+    import re
+
+    import relight_studio
+
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    assert relight_studio.__version__ == version
+    iss = (ROOT / "packaging" / "installer" / "relight_studio.iss").read_text(encoding="utf-8")
+    assert re.search(r'#define AppVersion "([^"]+)"', iss).group(1) == version
+    assert (ROOT / "docs" / "releases" / f"v{version}-beta.md").exists()  # every version ships notes
