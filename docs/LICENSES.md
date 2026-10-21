@@ -33,5 +33,6 @@ can be replaced by a compatible build. The CUDA runtime libraries inside PyTorch
 software redistributed with the PyTorch package under NVIDIA's CUDA license terms. Model weights
 are not bundled; they are downloaded on first use.
 
-All icons, the logo and the theme are original work drawn with QPainter; no Adobe or other
-third-party graphic assets are included.
+All icons, the logo and the theme are original work (the logo kit is in `assets/brand`); no Adobe
+or other third-party graphic assets are included. The logo's wordmark uses the Manrope typeface
+(SIL Open Font License 1.1, `assets/brand/source/fonts/Manrope-OFL.txt`), converted to outlines.

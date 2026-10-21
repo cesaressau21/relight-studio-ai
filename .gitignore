@@ -11,3 +11,4 @@ dist/
 .codegraph/
 .atl/
 build_log.txt
+assets/brand/source/node_modules/

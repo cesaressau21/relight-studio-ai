@@ -1,0 +1,14 @@
+{
+  "name": "relight-logo-build",
+  "private": true,
+  "type": "module",
+  "description": "Generates the Relight Studio AI logo kit (SVG, PNG, ICO) from geometry and outlined Manrope text.",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "opentype.js": "^2.0.0",
+    "png-to-ico": "^3.0.2"
+  }
+}

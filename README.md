@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/png/horizontal/relight-horizontal-color-on-dark-1200.png">
+    <img alt="Relight Studio AI" src="assets/brand/png/horizontal/relight-horizontal-color-on-light-1200.png" width="420">
+  </picture>
+</p>
+
 # Relight Studio AI
 
 Desktop photo relighting for Windows. Relight Studio AI estimates the scene geometry of a
