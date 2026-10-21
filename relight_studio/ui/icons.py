@@ -213,26 +213,31 @@ def icon(name: str, size: int = 20) -> QIcon:
 
 
 def logo_pixmap(size: int = 22) -> QPixmap:
-    """Brand mark: an aperture-like disc lit from one side."""
+    """Brand mark: the subject and a light orbiting it (see assets/brand, 56-unit grid).
+
+    Drawn at the small-icon optics of the logo kit: heavier orbit, larger light.
+    """
     ratio = 2.0
     pm = QPixmap(int(size * ratio), int(size * ratio))
     pm.fill(Qt.GlobalColor.transparent)
     pm.setDevicePixelRatio(ratio)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    s = size / 24.0
-    p.scale(s, s)
-    from PySide6.QtGui import QRadialGradient
-
-    grad = QRadialGradient(QPointF(8, 8), 16)
-    grad.setColorAt(0.0, QColor("#ffd29a"))
-    grad.setColorAt(0.45, QColor(theme.ACCENT))
-    grad.setColorAt(1.0, QColor("#3b1d0a"))
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(grad)
-    p.drawEllipse(QPointF(12, 12), 10.5, 10.5)
+    p.scale(size / 56.0, size / 56.0)
+    center, orbit, stroke, subject, light, halo = 28.0, 22.0, 5.4, 13.5, 7.2, 3.6
+    angle = math.radians(225)
+    lx, ly = center + orbit * math.cos(angle), center + orbit * math.sin(angle)
+    # Orbit with a gap around the light: the arc spans the rest of the circle.
+    gap = math.degrees(2 * math.asin(min(1.0, (light + halo) / (2 * orbit))))
+    p.setPen(QPen(QColor(theme.ACCENT), stroke, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
     p.setBrush(Qt.BrushStyle.NoBrush)
-    p.setPen(QPen(QColor(255, 255, 255, 200), 1.4))
-    p.drawArc(QRectF(4.5, 4.5, 15, 15), 110 * 16, 110 * 16)
+    rect = QRectF(center - orbit, center - orbit, 2 * orbit, 2 * orbit)
+    start = 135 + gap  # Qt angles run counterclockwise from 3 o'clock; the light sits at 135°
+    p.drawArc(rect, int(start * 16), int((360 - 2 * gap) * 16))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(theme.TEXT))
+    p.drawEllipse(QPointF(center, center), subject, subject)
+    p.setBrush(QColor(theme.ACCENT))
+    p.drawEllipse(QPointF(lx, ly), light, light)
     p.end()
     return pm

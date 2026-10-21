@@ -51,7 +51,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#Root}\relight_studio\*"; DestDir: "{app}\app\relight_studio"; Excludes: "__pycache__,*.pyc"; Flags: recursesubdirs ignoreversion
 Source: "{#Root}\presets\*"; DestDir: "{app}\app\presets"; Flags: recursesubdirs ignoreversion
-Source: "{#Root}\assets\*"; DestDir: "{app}\app\assets"; Flags: recursesubdirs ignoreversion
+; Only the icons: the logo kit in assets\brand is not needed at run time.
+Source: "{#Root}\assets\icon.*"; DestDir: "{app}\app\assets"; Flags: ignoreversion
 Source: "installed.txt"; DestDir: "{app}\app"; Flags: ignoreversion
 Source: "install.ps1"; DestDir: "{app}\setup"; Flags: ignoreversion
 Source: "requirements-lock.txt"; DestDir: "{app}\setup"; Flags: ignoreversion

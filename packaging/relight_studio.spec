@@ -18,7 +18,9 @@ hidden = (
 a = Analysis(
     [str(ROOT / "relight_studio" / "__main__.py")],
     pathex=[str(ROOT)],
-    datas=[(str(ROOT / "presets"), "presets"), (str(ROOT / "assets"), "assets")],
+    # Only the icons: the logo kit in assets/brand is not needed at run time.
+    datas=[(str(ROOT / "presets"), "presets"), (str(ROOT / "assets" / "icon.png"), "assets"),
+           (str(ROOT / "assets" / "icon.ico"), "assets")],
     hiddenimports=hidden,
     excludes=["tkinter", "matplotlib", "IPython", "pytest", "torch.utils.tensorboard", "torchvision"],
     noarchive=False,
